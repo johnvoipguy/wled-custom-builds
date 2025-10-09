@@ -7,7 +7,7 @@
 ---
 
 ## 📥 **Quick Download**
-⚠️ **WRNING!!!!: v0.16.0 Requires flashing firmware via UART ONLY!! You cannot OTA to this version! remember to use --secure after write_flash ** ⚠️
+⚠️ **WARNING!!!!: v0.16.0 Requires flashing firmware via UART ONLY!! You cannot OTA to this version! remember to use --secure after write_flash ** ⚠️
 **Need firmware for your modified SP530E?** 
 
 👉 **[📁 Easy Download - builds/latest/](./builds/latest/)** 👈
