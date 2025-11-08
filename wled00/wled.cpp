@@ -624,6 +624,13 @@ bool WLED::initEthernet()
 
   DEBUG_PRINTF_P(PSTR("initE: Attempting ETH config: %d\n"), ethernetType);
 
+#ifdef WLED_USE_W5500
+  // Check if this is an ESP32-S3Dev-W5500 board (ethernetType == 13)
+  if (ethernetType == 13) {
+    return initW5500Ethernet();
+  }
+#endif
+
   // Ethernet initialization should only succeed once -- else reboot required
   ethernet_settings es = ethernetBoards[ethernetType];
   managed_pin_type pinsToAllocate[10] = {

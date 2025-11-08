@@ -1043,6 +1043,9 @@ public:
   void beginStrip();
   void handleConnection();
   bool initEthernet(); // result is informational
+#ifdef WLED_USE_W5500
+  bool initW5500Ethernet(); // W5500 SPI ethernet initialization
+#endif
   void initAP(bool resetAP = false);
   void initConnection();
   void initInterfaces();

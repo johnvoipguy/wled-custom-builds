@@ -1,8 +1,18 @@
 #include "Network.h"
+#ifdef WLED_USE_W5500
+#include <Ethernet.h>
+#endif
 
 IPAddress NetworkClass::localIP()
 {
   IPAddress localIP;
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  localIP = Ethernet.localIP();
+  if (localIP[0] != 0) {
+    return localIP;
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   localIP = ETH.localIP();
   if (localIP[0] != 0) {
@@ -19,6 +29,12 @@ IPAddress NetworkClass::localIP()
 
 IPAddress NetworkClass::subnetMask()
 {
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  if (Ethernet.localIP()[0] != 0) {
+    return Ethernet.subnetMask();
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   if (ETH.localIP()[0] != 0) {
     return ETH.subnetMask();
@@ -32,6 +48,12 @@ IPAddress NetworkClass::subnetMask()
 
 IPAddress NetworkClass::gatewayIP()
 {
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  if (Ethernet.localIP()[0] != 0) {
+      return Ethernet.gatewayIP();
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   if (ETH.localIP()[0] != 0) {
       return ETH.gatewayIP();
@@ -45,6 +67,21 @@ IPAddress NetworkClass::gatewayIP()
 
 void NetworkClass::localMAC(uint8_t* MAC)
 {
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  if (Ethernet.localIP()[0] != 0) {
+    // W5500 MAC address handling
+    byte mac[6];
+    Ethernet.MACAddress(mac);
+    memcpy(MAC, mac, 6);
+    // Check if we got a valid MAC
+    for (uint8_t i = 0; i < 6; i++) {
+      if (MAC[i] != 0x00) {
+        return;
+      }
+    }
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   // ETH.macAddress(MAC); // Does not work because of missing ETHClass:: in ETH.ccp
 
@@ -73,6 +110,12 @@ void NetworkClass::localMAC(uint8_t* MAC)
 
 bool NetworkClass::isConnected()
 {
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  if (Ethernet.localIP()[0] != 0) {
+    return true; // W5500 is connected
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   return (WiFi.localIP()[0] != 0 && WiFi.status() == WL_CONNECTED) || ETH.localIP()[0] != 0;
 #else
@@ -82,10 +125,13 @@ bool NetworkClass::isConnected()
 
 bool NetworkClass::isEthernet()
 {
+#ifdef WLED_USE_W5500
+  // Check W5500 first (SPI ethernet)
+  return (Ethernet.localIP()[0] != 0);
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   return (ETH.localIP()[0] != 0);
 #endif
   return false;
 }
 
-NetworkClass Network;

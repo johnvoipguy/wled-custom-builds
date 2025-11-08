@@ -136,14 +136,113 @@ const ethernet_settings ethernetBoards[] = {
   },
   
   // LILYGO T-POE Pro
-  // https://github.com/Xinyuan-LilyGO/LilyGO-T-ETH-Series/blob/master/schematic/T-POE-PRO.pdf
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
   {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
+  // https://github.com/Xinyuan-LilyGO/LilyGO-T-ETH-Series/blob/master/schematic/T-POE-PRO.pdf
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
+  {
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     0,			              // eth_address,
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     5,			              // eth_power,
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     23,			              // eth_mdc,
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     18,			              // eth_mdio,
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     ETH_PHY_LAN8720,      // eth_type,
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
     ETH_CLOCK_GPIO0_OUT	// eth_clk_mode
+  },
+
+  // ESP32-S3Dev-W5500
+  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  {
+    0,			              // eth_address (not used for SPI),
+    -1,			              // eth_power (W5500 reset handled separately),
+    -1,			              // eth_mdc (not used for SPI),
+    -1,			              // eth_mdio (not used for SPI),
+    ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
+    ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
   }
 };
 #endif
@@ -212,3 +311,78 @@ void WiFiEvent(WiFiEvent_t event)
   }
 }
 
+
+#ifdef WLED_USE_W5500
+#include <Ethernet.h>
+#include <SPI.h>
+
+bool WLED::initW5500Ethernet() {
+  static bool successfullyConfiguredW5500 = false;
+  
+  if (successfullyConfiguredW5500) {
+    return false;
+  }
+  
+  DEBUG_PRINTLN(F("initW5500: Starting W5500 SPI Ethernet initialization"));
+  
+  // Allocate W5500 SPI pins
+  managed_pin_type w5500Pins[6] = {
+    { W5500_CS_PIN,   true },  // CS pin (output)
+    { W5500_MOSI_PIN, true },  // MOSI pin (output)  
+    { W5500_MISO_PIN, false }, // MISO pin (input)
+    { W5500_SCLK_PIN, true },  // SCLK pin (output)
+    { W5500_RST_PIN,  true },  // Reset pin (output)
+    { W5500_INT_PIN,  false }  // Interrupt pin (input, optional)
+  };
+  
+  if (!PinManager::allocateMultiplePins(w5500Pins, 6, PinOwner::Ethernet)) {
+    DEBUG_PRINTLN(F("initW5500: Failed to allocate W5500 pins"));
+    return false;
+  }
+  
+  // Reset W5500
+  pinMode(W5500_RST_PIN, OUTPUT);
+  digitalWrite(W5500_RST_PIN, LOW);
+  delay(100);
+  digitalWrite(W5500_RST_PIN, HIGH);
+  delay(200);
+  
+  // Initialize SPI
+  SPI.begin(W5500_SCLK_PIN, W5500_MISO_PIN, W5500_MOSI_PIN, W5500_CS_PIN);
+  
+  // Start Ethernet with DHCP
+  if (Ethernet.begin(nullptr) == 0) {
+    DEBUG_PRINTLN(F("initW5500: DHCP failed, trying static IP"));
+    
+    // Fall back to static IP if available
+    if (multiWiFi[0].staticIP != (uint32_t)0x00000000 && multiWiFi[0].staticGW != (uint32_t)0x00000000) {
+      Ethernet.begin(nullptr, multiWiFi[0].staticIP, multiWiFi[0].staticGW, multiWiFi[0].staticSN);
+    } else {
+      DEBUG_PRINTLN(F("initW5500: No static IP configured, using default"));
+      IPAddress ip(192, 168, 1, 100);
+      IPAddress gateway(192, 168, 1, 1); 
+      IPAddress subnet(255, 255, 255, 0);
+      Ethernet.begin(nullptr, ip, gateway, subnet);
+    }
+  }
+  
+  // Give it time to connect
+  delay(1500);
+  
+  if (Ethernet.localIP() == INADDR_NONE) {
+    DEBUG_PRINTLN(F("initW5500: Failed to get IP address"));
+    // Deallocate pins on failure
+    for (auto& pin : w5500Pins) {
+      PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
+    }
+    return false;
+  }
+  
+  successfullyConfiguredW5500 = true;
+  DEBUG_PRINTF_P(PSTR("initW5500: *** W5500 successfully configured! IP: %d.%d.%d.%d ***\n"), 
+    Ethernet.localIP()[0], Ethernet.localIP()[1], 
+    Ethernet.localIP()[2], Ethernet.localIP()[3]);
+    
+  return true;
+}
+#endif

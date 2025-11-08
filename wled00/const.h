@@ -367,7 +367,7 @@
 #define BTN_TYPE_TOUCH_SWITCH     9
 
 //Ethernet board types
-#define WLED_NUM_ETH_TYPES        13
+#define WLED_NUM_ETH_TYPES        14
 
 #define WLED_ETH_NONE              0
 #define WLED_ETH_WT32_ETH01        1
