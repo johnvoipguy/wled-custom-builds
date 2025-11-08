@@ -135,3 +135,6 @@ bool NetworkClass::isEthernet()
   return false;
 }
 
+// Instantiate the Network object
+NetworkClass Network;
+
