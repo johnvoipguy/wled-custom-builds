@@ -14,6 +14,81 @@
 
 A fast and feature-rich implementation of an ESP8266/ESP32 webserver to control NeoPixel (WS2812B, WS2811, SK6812) LEDs or also SPI based chipsets like the WS2801 and APA102!
 
+## 🔌 Waveshare ESP32-S3-ETH Custom Build
+
+This is a custom WLED build for the **Waveshare ESP32-S3-ETH** board with W5500 Ethernet support.
+
+### Hardware Configuration
+- **Board**: Waveshare ESP32-S3-ETH (ESP32-S3, 16MB Flash, 8MB PSRAM)
+- **Ethernet**: W5500 SPI Ethernet (pins: MISO=12, MOSI=11, SCLK=13, CS=14, RST=9, INT=10)
+- **LED Outputs**: 8 channels configured (GPIO 48, 47, 38, 39, 40, 41, 42, 2)
+- **Features**: MQTT, AudioReactive usermod enabled
+
+### Flashing Instructions
+
+#### Using esptool.py (Command Line)
+1. Download the firmware from `build_output/release/`
+2. Flash using esptool.py:
+
+```bash
+# Full flash (includes bootloader, partitions, and firmware)
+esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
+  write_flash 0x0 WLED_*_FULL.bin
+
+# Or OTA update only (if already running WLED)
+esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
+  write_flash 0x10000 WLED_*_OTA.bin
+```
+
+Replace `/dev/ttyACM0` with your serial port (Windows: `COM3`, `COM4`, etc.)
+
+### Network Configuration
+
+**IMPORTANT**: This build uses a dual-interface setup due to AsyncTCP library limitations with W5500:
+
+#### Dual-Interface Operation
+- **WiFi Interface (required)**: Provides web interface, WebSockets, and HTTP API
+- **Ethernet Interface (optional)**: Provides UDP protocols (E1.31, Art-Net, DDP) for LED control
+
+#### Initial Setup Procedure
+1. **First boot** (without Ethernet cable):
+   - Device creates AP: `WLED-ETH-Config` (open, no password)
+   - Connect to AP and configure WiFi via web interface (http://4.3.2.1)
+   - Save settings and reboot
+
+2. **Subsequent boots** (with Ethernet cable connected):
+   - Ethernet: Gets DHCP address (e.g., 192.168.50.239)
+   - WiFi: Connects to configured SSID (e.g., 192.168.50.230)
+   - Both interfaces active simultaneously
+
+#### Interface Capabilities
+
+**WiFi Interface** (.230 in example):
+- ✅ Full web interface
+- ✅ WebSockets for real-time updates
+- ✅ HTTP/JSON API
+- ✅ OTA updates
+- ✅ All UDP protocols (E1.31, Art-Net, DDP)
+
+**Ethernet Interface** (.239 in example):
+- ✅ UDP protocols (E1.31, Art-Net, DDP) - **Best for LED streaming**
+- ✅ MQTT
+- ✅ Ping/ICMP
+- ❌ Web interface (AsyncWebServer limitation)
+- ❌ HTTP/JSON API
+- ❌ WebSockets
+
+#### Recommended Usage
+- **Configure** via WiFi web interface (http://192.168.50.230)
+- **Control LEDs** via Ethernet UDP protocols for low-latency, reliable streaming
+- **Automatic failover**: If Ethernet disconnects, WiFi continues to work
+
+### Technical Notes
+
+The AsyncTCP library used by WLED's web server is hardcoded to use ESP32's LwIP TCP stack and cannot bind to the W5500's separate TCP stack. This requires keeping WiFi active to provide web interface functionality while Ethernet handles UDP-based LED control protocols.
+
+For Ethernet-only operation, the entire web server would need to be replaced with ESP32's synchronous WebServer library, which is a substantial code change beyond the scope of this build.
+
 ## ⚙️ Features
 - WS2812FX library with more than 100 special effects  
 - FastLED noise effects and 50 palettes  

@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../wled-main-sp530e"
+		},
+		{
+			"path": "../wled-esp32s3-w5500"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}

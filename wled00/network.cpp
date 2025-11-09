@@ -213,15 +213,18 @@ void WiFiEvent(WiFiEvent_t event)
 
 
 #ifdef WLED_USE_W5500
-#include <Ethernet.h>
 #include <SPI.h>
+#include <Ethernet.h>  // Official Arduino Ethernet library (supports W5500)
+
+static bool successfullyConfiguredW5500 = false;
 
 bool WLED::initW5500Ethernet() {
-  static bool successfullyConfiguredW5500 = false;
-  
   if (successfullyConfiguredW5500) {
     return false;
   }
+  
+  // Delay to let system stabilize after boot
+  delay(100);
   
   // Always print Ethernet init info (not just in debug mode)
   Serial.println(F("\n*** W5500 Ethernet Initialization ***"));
@@ -249,37 +252,69 @@ bool WLED::initW5500Ethernet() {
   Serial.println(F("Resetting W5500 chip..."));
   pinMode(W5500_RST, OUTPUT);
   digitalWrite(W5500_RST, LOW);
-  delay(100);
+  delay(50);
   digitalWrite(W5500_RST, HIGH);
-  delay(200);
+  delay(150);
   
   // Initialize SPI with W5500 pins
   Serial.println(F("Initializing SPI bus..."));
   SPI.begin(W5500_SCLK, W5500_MISO, W5500_MOSI, W5500_CS);
+  SPI.setFrequency(10000000); // 10 MHz - lower speed for stability
+  delay(50);
   
-  // Start Ethernet with DHCP
-  Serial.println(F("Starting Ethernet with DHCP..."));
-  if (Ethernet.begin(nullptr) == 0) {
-    Serial.println(F("DHCP failed, trying static IP..."));
-    
-    // Fall back to static IP if available
-    if (multiWiFi[0].staticIP != (uint32_t)0x00000000 && multiWiFi[0].staticGW != (uint32_t)0x00000000) {
-      Serial.printf_P(PSTR("Using configured static IP: %d.%d.%d.%d\n"),
-        ((uint8_t*)&multiWiFi[0].staticIP)[0], ((uint8_t*)&multiWiFi[0].staticIP)[1],
-        ((uint8_t*)&multiWiFi[0].staticIP)[2], ((uint8_t*)&multiWiFi[0].staticIP)[3]);
-      Ethernet.begin(nullptr, multiWiFi[0].staticIP, multiWiFi[0].staticGW, multiWiFi[0].staticSN);
-    } else {
-      Serial.println(F("No static IP configured, using default 192.168.1.100"));
-      IPAddress ip(192, 168, 1, 100);
-      IPAddress gateway(192, 168, 1, 1); 
-      IPAddress subnet(255, 255, 255, 0);
-      Ethernet.begin(nullptr, ip, gateway, subnet);
+  // Initialize Ethernet2 library with CS pin
+  Serial.println(F("Initializing Ethernet2 library..."));
+  pinMode(W5500_CS, OUTPUT);
+  digitalWrite(W5500_CS, HIGH); // CS idle high
+  Ethernet.init(W5500_CS);
+  delay(100); // Give W5500 more time to be ready
+  
+  // Check link status BEFORE calling Ethernet.begin()
+  // This prevents W5500 TCP stack from interfering with WiFi if no cable
+  EthernetLinkStatus linkStatus = Ethernet.linkStatus();
+  if (linkStatus == LinkOFF) {
+    Serial.println(F("ERROR: No Ethernet cable connected!"));
+    Serial.println(F("W5500 initialization skipped, will use WiFi/AP"));
+    // Deallocate pins so WiFi can use them if needed
+    for (auto& pin : w5500Pins) {
+      PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
     }
+    return false;
   }
   
-  // Give it time to connect
-  Serial.println(F("Waiting for link..."));
-  delay(1500);
+  Serial.println(F("Ethernet cable detected!"));
+  
+  // Generate MAC address from ESP32 chip ID
+  uint8_t mac[6];
+  uint64_t chipid = ESP.getEfuseMac();
+  mac[0] = 0x02;  // Locally administered MAC
+  mac[1] = 0x00;
+  mac[2] = (chipid >> 32) & 0xFF;
+  mac[3] = (chipid >> 16) & 0xFF;
+  mac[4] = (chipid >> 8) & 0xFF;
+  mac[5] = chipid & 0xFF;
+  
+  Serial.printf_P(PSTR("Using MAC: %02X:%02X:%02X:%02X:%02X:%02X\n"),
+    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  
+  // Start Ethernet with DHCP (with timeout)
+  Serial.println(F("Starting Ethernet with DHCP (5s timeout)..."));
+  
+  unsigned long dhcpStart = millis();
+  uint8_t dhcpResult = Ethernet.begin(mac, 5000, 1000);  // 5s timeout, 1s response timeout
+  
+  if (dhcpResult == 0) {
+    // DHCP failed (but cable was connected when we checked)
+    Serial.printf_P(PSTR("ERROR: DHCP timeout after %lums\n"), millis() - dhcpStart);
+    Serial.println(F("W5500 initialization failed, will fall back to WiFi/AP"));
+    // Deallocate pins so WiFi can try
+    for (auto& pin : w5500Pins) {
+      PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
+    }
+    return false;
+  }
+  
+  Serial.printf_P(PSTR("DHCP succeeded in %lums\n"), millis() - dhcpStart);
   
   if (Ethernet.localIP() == INADDR_NONE) {
     Serial.println(F("ERROR: Failed to get IP address!"));
@@ -290,11 +325,6 @@ bool WLED::initW5500Ethernet() {
     }
     return false;
   }
-  
-  // Print link status
-  auto link = Ethernet.linkStatus();
-  Serial.printf_P(PSTR("Link Status: %s\n"), 
-    link == LinkON ? "Connected" : link == LinkOFF ? "Disconnected" : "Unknown");
   
   successfullyConfiguredW5500 = true;
   
@@ -315,5 +345,43 @@ bool WLED::initW5500Ethernet() {
   Serial.println(F("*********************************\n"));
     
   return true;
+}
+
+// W5500: Poll for connection state changes (mimics PHY event system)
+void handleW5500() {
+  static bool wasConnected = false;
+  static unsigned long lastCheck = 0;
+  static bool initialized = successfullyConfiguredW5500;
+  
+  // Check every 500ms
+  if (millis() - lastCheck < 500) return;
+  lastCheck = millis();
+  
+  // Skip if W5500 never initialized successfully
+  if (!initialized) return;
+  
+  // Maintain DHCP lease
+  Ethernet.maintain();
+  
+  // Check connection state
+  bool isConnected = (Ethernet.localIP() != INADDR_NONE && Ethernet.linkStatus() == LinkON);
+  
+  // Connection state changed
+  if (isConnected && !wasConnected) {
+    // Just connected
+    DEBUG_PRINTLN(F("W5500 Ethernet Connected"));
+    DEBUG_PRINTF_P(PSTR("W5500 IP: %d.%d.%d.%d\n"),
+      Ethernet.localIP()[0], Ethernet.localIP()[1],
+      Ethernet.localIP()[2], Ethernet.localIP()[3]);
+    // Don't touch WiFi - let both interfaces run simultaneously
+    showWelcomePage = false;
+    forceReconnect = false;  // Mark as connected
+    wasConnected = true;
+  } else if (!isConnected && wasConnected) {
+    // Just disconnected
+    DEBUG_PRINTLN(F("W5500 Ethernet Disconnected"));
+    forceReconnect = true;  // Trigger WiFi fallback
+    wasConnected = false;
+  }
 }
 #endif

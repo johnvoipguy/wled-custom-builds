@@ -58,6 +58,9 @@ void WLED::loop()
   handleIR();        // 2nd call to function needed for ESP32 to return valid results -- should be good for ESP8266, too
   #endif
   handleConnection();
+  #ifdef WLED_USE_W5500
+  handleW5500();  // Poll W5500 for connection state changes
+  #endif
   #ifdef WLED_ENABLE_ADALIGHT
   handleSerial();
   #endif
@@ -781,6 +784,9 @@ void WLED::initConnection()
 
   lastReconnectAttempt = millis();
 
+  DEBUG_PRINTF_P(PSTR("WiFi Config Check: SSID='%s', Pass='%s'\n"), 
+    multiWiFi[0].clientSSID, multiWiFi[0].clientPass[0] ? "***" : "(empty)");
+
   if (!WLED_WIFI_CONFIGURED) {
     DEBUG_PRINTLN(F("No connection configured."));
     if (!apActive) initAP();        // instantly go to ap mode
@@ -937,7 +943,15 @@ void WLED::handleConnection()
     }
   }
 
-  if (!Network.isConnected()) {
+  // When W5500 Ethernet is active, we want BOTH WiFi and Ethernet running
+  // So check WiFi status separately instead of Network.isConnected()
+#ifdef WLED_USE_W5500
+  bool checkWiFiConnection = (WiFi.status() != WL_CONNECTED);
+#else
+  bool checkWiFiConnection = !Network.isConnected();
+#endif
+
+  if (checkWiFiConnection) {
     if (interfacesInited) {
       if (scanDone && multiWiFi.size() > 1) {
         DEBUG_PRINTLN(F("WiFi scan initiated on disconnect."));

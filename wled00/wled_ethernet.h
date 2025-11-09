@@ -32,4 +32,8 @@ extern const ethernet_settings ethernetBoards[];
 extern const managed_pin_type esp32_nonconfigurable_ethernet_pins[WLED_ETH_RSVD_PINS_COUNT];
 #endif
 
+#ifdef WLED_USE_W5500
+void handleW5500();  // Poll W5500 for connection state changes
+#endif
+
 #endif

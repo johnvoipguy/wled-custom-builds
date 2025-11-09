@@ -1,6 +1,7 @@
 #include "Network.h"
 #ifdef WLED_USE_W5500
-#include <Ethernet.h>
+#include <Ethernet.h>  // Official Arduino Ethernet library (supports W5500)
+// Arduino Ethernet library handles W5500 internally, no external object needed
 #endif
 
 IPAddress NetworkClass::localIP()
@@ -70,10 +71,8 @@ void NetworkClass::localMAC(uint8_t* MAC)
 #ifdef WLED_USE_W5500
   // Check W5500 first (SPI ethernet)
   if (Ethernet.localIP()[0] != 0) {
-    // W5500 MAC address handling
-    byte mac[6];
-    Ethernet.MACAddress(mac);
-    memcpy(MAC, mac, 6);
+    // Arduino Ethernet library: use Ethernet.MACAddress()
+    Ethernet.MACAddress(MAC);
     // Check if we got a valid MAC
     for (uint8_t i = 0; i < 6; i++) {
       if (MAC[i] != 0x00) {
