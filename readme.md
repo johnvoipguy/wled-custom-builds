@@ -21,7 +21,8 @@ This is a custom WLED build for the **Waveshare ESP32-S3-ETH** board with W5500 
 ### Hardware Configuration
 - **Board**: Waveshare ESP32-S3-ETH (ESP32-S3, 16MB Flash, 8MB PSRAM)
 - **Ethernet**: W5500 SPI Ethernet (pins: MISO=12, MOSI=11, SCLK=13, CS=14, RST=9, INT=10)
-- **LED Outputs**: 8 channels configured (GPIO 48, 47, 38, 39, 40, 41, 42, 2)
+- **LED Outputs**: 8 channels configured (GPIO 48, 47, 38, 39, 40, 41, 42, 1)
+- **AudioReactive**: I2S microphone on GPIO 4
 - **Features**: MQTT, AudioReactive usermod enabled
 
 ### Flashing Instructions
@@ -88,6 +89,50 @@ Replace `/dev/ttyACM0` with your serial port (Windows: `COM3`, `COM4`, etc.)
 The AsyncTCP library used by WLED's web server is hardcoded to use ESP32's LwIP TCP stack and cannot bind to the W5500's separate TCP stack. This requires keeping WiFi active to provide web interface functionality while Ethernet handles UDP-based LED control protocols.
 
 For Ethernet-only operation, the entire web server would need to be replaced with ESP32's synchronous WebServer library, which is a substantial code change beyond the scope of this build.
+
+### 🔧 Configuration Guide
+
+#### First-Time Setup (WiFi Configuration Required)
+
+**Step 1: Initial Boot WITHOUT Ethernet Cable**
+1. Power on the board with **NO Ethernet cable connected**
+2. Device creates access point: `WLED-ETH-Config` (open, no password)
+3. Connect your phone/computer to this AP
+4. Browser should auto-open to http://4.3.2.1 (or navigate manually)
+5. Go to **Config → WiFi Setup**
+6. Enter your WiFi SSID and password
+7. Click **Save & Reboot**
+
+**Step 2: Dual-Interface Operation**
+1. After reboot, connect Ethernet cable to RJ45 port
+2. Device will get two IP addresses (check your router's DHCP list):
+   - **WiFi IP** (e.g., 192.168.50.230) - for web interface
+   - **Ethernet IP** (e.g., 192.168.50.239) - for LED control protocols
+
+**Step 3: Configure LED Settings**
+1. Access web interface via WiFi IP: `http://192.168.50.230`
+2. Go to **Config → LED Preferences**
+3. Default LED pin is GPIO 48 (first of 8 channels)
+4. Configure your LED type (WS2812B, SK6812, etc.)
+5. Set number of LEDs per channel
+6. Save settings
+
+#### AudioReactive Setup (Optional)
+- **Microphone Input**: GPIO 4 (I2S)
+- Enable in **Config → Usermods**
+- Requires I2S microphone module (INMP441, ICS-43434, etc.)
+- Connect: SCK→GPIO 4, SD→GPIO 4, WS→not connected
+
+#### Network Settings (Already Configured)
+- **Ethernet Type**: Pre-configured as "ESP32-S3 SPI Ethernet (Type 13)"
+- **DHCP**: Enabled by default on both interfaces
+- **mDNS**: Access via `http://wled-<chipid>.local` after WiFi is configured
+
+#### Important Notes
+- ⚠️ **WiFi MUST be configured first** before connecting Ethernet
+- ⚠️ Web interface only accessible via WiFi IP, not Ethernet IP
+- ✅ Use Ethernet IP for E1.31/Art-Net/DDP LED streaming (best performance)
+- ✅ Use WiFi IP for web configuration and control
 
 ## ⚙️ Features
 - WS2812FX library with more than 100 special effects  
