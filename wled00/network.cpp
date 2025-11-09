@@ -138,8 +138,8 @@ const ethernet_settings ethernetBoards[] = {
   // LILYGO T-POE Pro
   },
 
-  // ESP32-S3Dev-W5500
-  // Generic ESP32-S3 development board with W5500 SPI Ethernet
+  // Waveshare ESP32-S3-ETH
+  // Waveshare ESP32-S3-ETH development board with W5500 SPI Ethernet
   {
     0,			              // eth_address (not used for SPI),
     -1,			              // eth_power (W5500 reset handled separately),
@@ -147,10 +147,10 @@ const ethernet_settings ethernetBoards[] = {
     -1,			              // eth_mdio (not used for SPI),
     ETH_PHY_LAN8720,      // eth_type (placeholder, W5500 is SPI-based),
     ETH_CLOCK_GPIO0_OUT	// eth_clk_mode (not used for SPI)
-  // https://github.com/Xinyuan-LilyGO/LilyGO-T-ETH-Series/blob/master/schematic/T-POE-PRO.pdf
+  // https://www.waveshare.com/wiki/ESP32-S3-ETH
   },
 
-  // ESP32-S3Dev-W5500
+  // Waveshare ESP32-S3-ETH
   // Generic ESP32-S3 development board with W5500 SPI Ethernet
   {
     0,			              // eth_address (not used for SPI),
