@@ -28,20 +28,22 @@ This is a custom WLED build for the **Waveshare ESP32-S3-ETH** board with W5500 
 ### Flashing Instructions
 
 #### Using esptool.py (Command Line)
-1. Download the firmware from `build_output/release/`
+1. Download the firmware from the [`firmware/`](firmware/) directory
 2. Flash using esptool.py:
 
 ```bash
-# Full flash (includes bootloader, partitions, and firmware)
+# Full flash (includes bootloader, partitions, and firmware) - RECOMMENDED for first time
 esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
-  write_flash 0x0 WLED_*_FULL.bin
+  write_flash 0x0 firmware/WLED_Waveshare_ESP32-S3-ETH_*_FULL.bin
 
-# Or OTA update only (if already running WLED)
+# Or OTA update only (if already running WLED - preserves settings)
 esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
-  write_flash 0x10000 WLED_*_OTA.bin
+  write_flash 0x10000 firmware/WLED_Waveshare_ESP32-S3-ETH_*_OTA.bin
 ```
 
 Replace `/dev/ttyACM0` with your serial port (Windows: `COM3`, `COM4`, etc.)
+
+**Download firmware files:** [firmware/README.md](firmware/README.md)
 
 ### Network Configuration
 
