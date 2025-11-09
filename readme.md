@@ -24,8 +24,8 @@ This is a custom WLED build for the **Waveshare ESP32-S3-ETH** board with W5500 
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| [**WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_FULL.bin**](firmware/WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_20251109_FULL.bin) ⭐ **RECOMMENDED** | Complete image with bootloader + partitions + firmware<br>Flash to address `0x0`<br>Size: ~1.5MB | **First-time setup**<br>Recovery/Complete reflash |
-| [**WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_OTA.bin**](firmware/WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_20251109_OTA.bin) | Application only<br>Flash to address `0x10000`<br>Size: ~1.4MB | **Updates**<br>Preserves settings |
+| [**WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_FULL.bin**](https://github.com/johnvoipguy/wled-custom-builds/raw/waveshare-esp32s3-eth-v15.1/firmware/WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_20251109_FULL.bin) ⭐ **RECOMMENDED** | Complete image with bootloader + partitions + firmware<br>Flash to address `0x0`<br>Size: ~1.5MB | **First-time setup**<br>Recovery/Complete reflash |
+| [**WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_OTA.bin**](https://github.com/johnvoipguy/wled-custom-builds/raw/waveshare-esp32s3-eth-v15.1/firmware/WLED_Waveshare_ESP32-S3-ETH_v1.0_DualInterface_20251109_OTA.bin) | Application only<br>Flash to address `0x10000`<br>Size: ~1.4MB | **Updates**<br>Preserves settings |
 
 **⚡ Flash Command:**
 ```bash
