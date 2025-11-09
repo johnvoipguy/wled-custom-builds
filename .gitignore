@@ -13,6 +13,8 @@ platformio_override.ini
 replace_fs.py
 wled-update.sh
 
+*.code-workspace
+
 /build_output/
 /node_modules/
 /logs/
