@@ -52,20 +52,43 @@ Perfect for permanent installations where WiFi isn't reliable or you need guaran
 
 | Function | GPIO | Note |
 |----------|------|------|
-| W5500 CS | 10 | Chip Select |
+| W5500 MISO | 12 | SPI Data In |
 | W5500 MOSI | 11 | SPI Data Out |
-| W5500 MISO | 13 | SPI Data In |
-| W5500 SCLK | 12 | SPI Clock |
-| W5500 RST | 14 | Hardware Reset |
-| W5500 INT | 4 | Interrupt |
+| W5500 SCLK | 13 | SPI Clock |
+| W5500 CS | 14 | Chip Select |
+| W5500 INT | 10 | Interrupt |
+| W5500 RST | 9 | Hardware Reset |
+
+*Source: [Waveshare ESP32-S3-ETH Wiki](https://www.waveshare.com/wiki/ESP32-S3-ETH)*
+
+### 8-Channel LED Output Configuration
+
+This build supports **8 simultaneous LED data outputs** for massive installations!
+
+| Channel | GPIO | Max LEDs/Channel* |
+|---------|------|-------------------|
+| Channel 1 | 48 | 500+ |
+| Channel 2 | 47 | 500+ |
+| Channel 3 | 38 | 500+ |
+| Channel 4 | 39 | 500+ |
+| Channel 5 | 40 | 500+ |
+| Channel 6 | 41 | 500+ |
+| Channel 7 | 42 | 500+ |
+| Channel 8 | 1 | 500+ |
+
+*Total LED count limited by available RAM/PSRAM, not individual channel limits*
+
+### Audio Reactive Configuration
+
+| Function | GPIO | Type |
+|----------|------|------|
+| Audio Input | 4 | I2S Digital Microphone |
 
 ### Default WLED Pins
 
 | Function | GPIO | Configurable |
 |----------|------|--------------|
-| LED Data | 48 | ✅ Yes (via WLED UI) |
 | Boot Button | 0 | ❌ Hardware |
-| Onboard RGB LED | 48 | ✅ Yes |
 
 ---
 
@@ -91,7 +114,70 @@ Perfect for permanent installations where WiFi isn't reliable or you need guaran
 ### 💾 Flashing Instructions
 
 <details>
-<summary>🪟 <b>Windows - ESP Flash Download Tool (Easiest!)</b></summary>
+<summary>⚡ <b>Method 1: ESPTool (Command Line - Recommended)</b></summary>
+
+**Why ESPTool?** Cross-platform, reliable, scriptable, and no GUI bloat!
+
+#### Install ESPTool
+
+**Option A - Python (All Platforms):**
+```bash
+pip install esptool
+```
+
+**Option B - Standalone Windows Executable:**
+Download from [ESPTool Releases](https://github.com/espressif/esptool/releases/latest)
+- Get `esptool-vX.X.X-windows-amd64.zip`
+- Extract and use `esptool.exe`
+
+#### Flash the Firmware
+
+**Full Image (First Time Setup):**
+```bash
+# Linux/Mac
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 \
+  write_flash 0x0 WLED_0.15.1_Waveshare_S3_ETH_FULL.bin
+
+# Windows
+esptool.py --chip esp32s3 --port COM3 --baud 921600 ^
+  write_flash 0x0 WLED_0.15.1_Waveshare_S3_ETH_FULL.bin
+```
+
+**App Only Update (Preserves Settings):**
+```bash
+# Linux/Mac
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 \
+  write_flash 0x10000 WLED_0.15.1_Waveshare_S3_ETH.bin
+
+# Windows  
+esptool.py --chip esp32s3 --port COM3 --baud 921600 ^
+  write_flash 0x10000 WLED_0.15.1_Waveshare_S3_ETH.bin
+```
+
+**💡 Tip:** If you get errors, try lower baud rate: `--baud 460800` or `--baud 115200`
+
+</details>
+
+<details>
+<summary>🪟 <b>Method 2: Web Flasher (Browser-Based)</b></summary>
+
+**Easiest option - no installation needed!**
+
+1. Visit [ESP Web Tools](https://espressif.github.io/esptool-js/)
+2. Connect your Waveshare board via USB-C
+3. Click **Connect** and select the serial port
+4. Choose `WLED_0.15.1_Waveshare_S3_ETH_FULL.bin`
+5. Set offset to `0x0`
+6. Click **Program**
+
+Works in Chrome, Edge, and Opera browsers!
+
+</details>
+
+<details>
+<summary>🪟 <b>Method 3: ESP Flash Download Tool (GUI)</b></summary>
+
+**Note:** While functional, we recommend ESPTool or Web Flasher for better reliability.
 
 1. Download [Espressif Flash Download Tool](https://www.espressif.com/en/support/download/other-tools)
 2. Launch and select **ESP32-S3**
