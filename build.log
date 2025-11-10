@@ -1,0 +1,121 @@
+Processing esp32s3_waveshare_eth (board: esp32-s3-devkitc-1; platform: espressif32@ ~6.3.2; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+*** use existing my_config.h ***
+Installing node packages
+npm install
+
+up to date, audited 239 packages in 1s
+
+9 packages are looking for funding
+  run `npm fund` for details
+
+16 vulnerabilities (1 low, 5 moderate, 7 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm run build
+
+> wled@0.15.1 build
+> node tools/cdata.js
+
+
+	  ##  ##      ##        ######    ######
+	##      ##    ##      ##        ##  ##  ##
+	##  ##  ##  ##        ######        ##  ##
+	##  ##  ##  ##        ##            ##  ##
+	  ##  ##      ######    ######    ######
+		 build script for web UI
+
+Web UI is already built
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-s3-devkitc-1.html
+PLATFORM: Espressif 32 (6.3.2) > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+HARDWARE: ESP32S3 240MHz, 320KB RAM, 16MB Flash
+DEBUG: Current (esp-builtin) On-board (esp-builtin) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-arduinoespressif32 @ 3.20009.0 (2.0.9) 
+ - tool-esptoolpy @ 1.40501.0 (4.5.1) 
+ - toolchain-riscv32-esp @ 8.4.0+2021r2-patch5 
+ - toolchain-xtensa-esp32s3 @ 8.4.0+2021r2-patch5
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ strict
+Found 42 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- AsyncTCP @ 1.2.0+sha.38b8475
+|-- FastLED @ 3.6.0
+|-- NeoPixelBus @ 2.8.3
+|-- ESPAsyncWebServerWLED @ 2.2.1+sha.6d2540d
+|-- QuickEspNow @ 0.8.1+sha.193e991
+|-- arduinoFFT @ 2.0.1
+|-- Ethernet_Generic @ 2.8.1
+|-- SPI @ 2.0.0
+|-- Wire @ 2.0.0
+|-- SD @ 2.0.0
+|-- SD_MMC @ 2.0.0
+|-- EEPROM @ 2.0.0
+|-- ArduinoOTA @ 2.0.0
+|-- DNSServer @ 2.0.0
+|-- ESPmDNS @ 2.0.0
+|-- Ethernet @ 2.0.0
+|-- LittleFS @ 2.0.0
+|-- WiFi @ 2.0.0
+|-- ESP32 Async UDP @ 2.0.0
+|-- WebServer @ 2.0.0
+Building in release mode
+Compiling .pio/build/esp32s3_waveshare_eth/src/ethernet_generic_wrapper.cpp.o
+Linking .pio/build/esp32s3_waveshare_eth/firmware.elf
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o:(.literal._ZN4WLED17initW5500EthernetEv+0x64): undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o:(.literal._ZN4WLED17initW5500EthernetEv+0x68): undefined reference to `EthernetClass::linkStatus()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o:(.literal._ZN4WLED17initW5500EthernetEv+0x6c): undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o:(.literal._ZN4WLED17initW5500EthernetEv+0x70): undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o: in function `IPAddress::IPAddress(IPAddress const&)':
+/workspace/.platformio/packages/framework-arduinoespressif32@3.20009.0/cores/esp32/IPAddress.h:29: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o: in function `WLED::initW5500Ethernet()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:274: undefined reference to `EthernetClass::linkStatus()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:276: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o: in function `IPAddress::IPAddress(IPAddress const&)':
+/workspace/.platformio/packages/framework-arduinoespressif32@3.20009.0/cores/esp32/IPAddress.h:29: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/.platformio/packages/framework-arduinoespressif32@3.20009.0/cores/esp32/IPAddress.h:29: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/network.cpp.o: in function `WLED::initW5500Ethernet()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:297: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:300: undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:305: undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:305: undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:306: undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:304: undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:304: undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:308: undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/network.cpp:308: undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o:(.literal._ZN12NetworkClass7localIPEv+0x10): undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o:(.literal._ZN12NetworkClass10subnetMaskEv+0x0): undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o:(.literal._ZN12NetworkClass9gatewayIPEv+0x0): undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o:(.literal._ZN12NetworkClass8localMACEPh+0x0): undefined reference to `EthernetClass::MACAddress(unsigned char*)'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::localIP()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:12: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::subnetMask()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:35: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:36: undefined reference to `EthernetClass::subnetMask()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::gatewayIP()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:54: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:55: undefined reference to `EthernetClass::gatewayIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::localMAC(unsigned char*)':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:73: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: /workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:76: undefined reference to `EthernetClass::MACAddress(unsigned char*)'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::isConnected()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:116: undefined reference to `EthernetClass::localIP()'
+/workspace/.platformio/packages/toolchain-xtensa-esp32s3/bin/../lib/gcc/xtensa-esp32s3-elf/8.4.0/../../../../xtensa-esp32s3-elf/bin/ld: .pio/build/esp32s3_waveshare_eth/src/src/dependencies/network/Network.cpp.o: in function `NetworkClass::isEthernet()':
+/workspace/wled-waveshare-esp32s3-eth/wled00/src/dependencies/network/Network.cpp:131: undefined reference to `EthernetClass::localIP()'
+collect2: error: ld returned 1 exit status
+*** [.pio/build/esp32s3_waveshare_eth/firmware.elf] Error 1
+========================= [FAILED] Took 13.19 seconds =========================
+
+Environment            Status    Duration
+---------------------  --------  ------------
+esp32s3_waveshare_eth  FAILED    00:00:13.190
+==================== 1 failed, 0 succeeded in 00:00:13.190 ====================

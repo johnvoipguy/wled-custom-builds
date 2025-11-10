@@ -1,0 +1,74 @@
+name: Build WLED Firmware
+
+on:
+  push:
+    branches: [ waveshare-esp32s3-eth-v15.1 ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ waveshare-esp32s3-eth-v15.1 ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Cache pip
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Cache PlatformIO
+      uses: actions/cache@v3
+      with:
+        path: ~/.platformio
+        key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
+        restore-keys: |
+          ${{ runner.os }}-platformio-
+          
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+        
+    - name: Build firmware
+      run: |
+        cd /home/runner/work/wled-custom-builds/wled-custom-builds/wled-waveshare-esp32s3-eth
+        pio run -e esp32s3_waveshare_eth
+        
+    - name: Create release binaries
+      run: |
+        cd /home/runner/work/wled-custom-builds/wled-custom-builds/wled-waveshare-esp32s3-eth
+        VERSION="Waveshare_ESP32-S3-ETH_$(date +%Y%m%d_%H%M%S)"
+        mkdir -p release
+        cp .pio/build/esp32s3_waveshare_eth/firmware.bin release/WLED_${VERSION}_OTA.bin
+        esptool.py --chip esp32s3 merge_bin -o release/WLED_${VERSION}_FULL.bin \
+          --flash_mode dio --flash_size 16MB \
+          0x0 .pio/build/esp32s3_waveshare_eth/bootloader.bin \
+          0x8000 .pio/build/esp32s3_waveshare_eth/partitions.bin \
+          0x10000 .pio/build/esp32s3_waveshare_eth/firmware.bin
+        
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: wled-firmware
+        path: release/*.bin
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/*.bin
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

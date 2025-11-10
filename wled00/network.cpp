@@ -217,6 +217,8 @@ void WiFiEvent(WiFiEvent_t event)
 #include <Ethernet.h>  // Official Arduino Ethernet library (supports W5500)
 
 static bool successfullyConfiguredW5500 = false;
+static bool w5500PinsAllocated = false;
+static bool w5500SpiInitialized = false;
 
 bool WLED::initW5500Ethernet() {
   if (successfullyConfiguredW5500) {
@@ -231,7 +233,7 @@ bool WLED::initW5500Ethernet() {
   Serial.printf_P(PSTR("W5500 Pins - MISO:%d MOSI:%d SCLK:%d CS:%d RST:%d INT:%d\n"),
     W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
   
-  // Allocate W5500 SPI pins (from platformio.ini build flags)
+  // Define W5500 pin array at function scope (needed for deallocation on errors)
   managed_pin_type w5500Pins[6] = {
     { W5500_CS,   true },  // CS pin (output)
     { W5500_MOSI, true },  // MOSI pin (output)  
@@ -241,44 +243,54 @@ bool WLED::initW5500Ethernet() {
     { W5500_INT,  false }  // Interrupt pin (input, optional)
   };
   
-  if (!PinManager::allocateMultiplePins(w5500Pins, 6, PinOwner::Ethernet)) {
-    Serial.println(F("ERROR: Failed to allocate W5500 pins!"));
-    return false;
+  // Allocate W5500 SPI pins (skip if already allocated from previous attempt)
+  if (!w5500PinsAllocated) {
+    if (!PinManager::allocateMultiplePins(w5500Pins, 6, PinOwner::Ethernet)) {
+      Serial.println(F("ERROR: Failed to allocate W5500 pins!"));
+      return false;
+    }
+    
+    Serial.println(F("W5500 pins allocated successfully"));
+    w5500PinsAllocated = true;
+  } else {
+    Serial.println(F("W5500 pins already allocated (hot-plug)"));
   }
   
-  Serial.println(F("W5500 pins allocated successfully"));
-  
-  // Reset W5500 chip
-  Serial.println(F("Resetting W5500 chip..."));
-  pinMode(W5500_RST, OUTPUT);
-  digitalWrite(W5500_RST, LOW);
-  delay(50);
-  digitalWrite(W5500_RST, HIGH);
-  delay(150);
-  
-  // Initialize SPI with W5500 pins
-  Serial.println(F("Initializing SPI bus..."));
-  SPI.begin(W5500_SCLK, W5500_MISO, W5500_MOSI, W5500_CS);
-  SPI.setFrequency(10000000); // 10 MHz - lower speed for stability
-  delay(50);
-  
-  // Initialize Ethernet2 library with CS pin
-  Serial.println(F("Initializing Ethernet2 library..."));
-  pinMode(W5500_CS, OUTPUT);
-  digitalWrite(W5500_CS, HIGH); // CS idle high
-  Ethernet.init(W5500_CS);
-  delay(100); // Give W5500 more time to be ready
+  // Reset and initialize SPI (skip if already done)
+  if (!w5500SpiInitialized) {
+    // Hardware reset of W5500
+    Serial.println(F("Resetting W5500 chip..."));
+    pinMode(W5500_RST, OUTPUT);
+    digitalWrite(W5500_RST, LOW);
+    delay(50);
+    digitalWrite(W5500_RST, HIGH);
+    delay(150);
+    
+    // Initialize SPI with W5500 pins
+    Serial.println(F("Initializing SPI bus..."));
+    SPI.begin(W5500_SCLK, W5500_MISO, W5500_MOSI, W5500_CS);
+    SPI.setFrequency(10000000); // 10 MHz - lower speed for stability
+    delay(50);
+    
+    // Initialize Ethernet2 library with CS pin
+    Serial.println(F("Initializing Ethernet2 library..."));
+    pinMode(W5500_CS, OUTPUT);
+    digitalWrite(W5500_CS, HIGH); // CS idle high
+    Ethernet.init(W5500_CS);
+    delay(100); // Give W5500 more time to be ready
+    
+    w5500SpiInitialized = true;
+  } else {
+    Serial.println(F("W5500 SPI already initialized (hot-plug)"));
+  }
   
   // Check link status BEFORE calling Ethernet.begin()
   // This prevents W5500 TCP stack from interfering with WiFi if no cable
   EthernetLinkStatus linkStatus = Ethernet.linkStatus();
   if (linkStatus == LinkOFF) {
     Serial.println(F("ERROR: No Ethernet cable connected!"));
-    Serial.println(F("W5500 initialization skipped, will use WiFi/AP"));
-    // Deallocate pins so WiFi can use them if needed
-    for (auto& pin : w5500Pins) {
-      PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
-    }
+    Serial.println(F("W5500 initialization skipped, will check for hot-plug every 5s"));
+    // DON'T deallocate pins - keep SPI initialized for hot-plug detection
     return false;
   }
   
@@ -298,19 +310,21 @@ bool WLED::initW5500Ethernet() {
     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   
   // Start Ethernet with DHCP (with timeout)
-  Serial.println(F("Starting Ethernet with DHCP (5s timeout)..."));
+  Serial.println(F("Starting Ethernet with DHCP (15s timeout)..."));
   
   unsigned long dhcpStart = millis();
-  uint8_t dhcpResult = Ethernet.begin(mac, 5000, 1000);  // 5s timeout, 1s response timeout
+  uint8_t dhcpResult = Ethernet.begin(mac, 15000, 4000);  // 15s timeout, 4s response timeout
   
   if (dhcpResult == 0) {
     // DHCP failed (but cable was connected when we checked)
     Serial.printf_P(PSTR("ERROR: DHCP timeout after %lums\n"), millis() - dhcpStart);
     Serial.println(F("W5500 initialization failed, will fall back to WiFi/AP"));
-    // Deallocate pins so WiFi can try
+    // Deallocate pins and reset state so WiFi can try
     for (auto& pin : w5500Pins) {
       PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
     }
+    w5500PinsAllocated = false;
+    w5500SpiInitialized = false;
     return false;
   }
   
@@ -319,10 +333,12 @@ bool WLED::initW5500Ethernet() {
   if (Ethernet.localIP() == INADDR_NONE) {
     Serial.println(F("ERROR: Failed to get IP address!"));
     Serial.println(F("Check: 1) Ethernet cable connected? 2) Router DHCP enabled? 3) W5500 wiring correct?"));
-    // Deallocate pins on failure
+    // Deallocate pins and reset state on failure
     for (auto& pin : w5500Pins) {
       PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
     }
+    w5500PinsAllocated = false;
+    w5500SpiInitialized = false;
     return false;
   }
   
@@ -351,14 +367,28 @@ bool WLED::initW5500Ethernet() {
 void handleW5500() {
   static bool wasConnected = false;
   static unsigned long lastCheck = 0;
-  static bool initialized = successfullyConfiguredW5500;
+  static unsigned long lastInitAttempt = 0;
   
   // Check every 500ms
   if (millis() - lastCheck < 500) return;
   lastCheck = millis();
   
-  // Skip if W5500 never initialized successfully
-  if (!initialized) return;
+  // If W5500 never initialized, try to initialize it periodically (hot-plug support)
+  if (!successfullyConfiguredW5500) {
+    // Try initialization every 5 seconds
+    if (millis() - lastInitAttempt > 5000) {
+      lastInitAttempt = millis();
+      DEBUG_PRINTLN(F("W5500: Checking for hot-plugged cable..."));
+      
+      // Check if cable is now connected
+      EthernetLinkStatus linkStatus = Ethernet.linkStatus();
+      if (linkStatus == LinkON) {
+        DEBUG_PRINTLN(F("W5500: Cable detected! Attempting initialization..."));
+        WLED::instance().initW5500Ethernet();
+      }
+    }
+    return;
+  }
   
   // Maintain DHCP lease
   Ethernet.maintain();
