@@ -1,0 +1,8 @@
+{
+  "name": "boot_status_led", 
+  "description": "Boot Status LED Usermod for WLED",
+  "version": "1.0.0",
+  "build": {
+    "libArchive": false
+  }
+}
