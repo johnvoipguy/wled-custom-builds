@@ -1,5 +1,12 @@
 #include "wled.h"
 
+#ifndef WLED_DISABLE_OTA
+  #ifdef ESP8266
+    #include <Updater.h>
+  #else
+    #include <Update.h>
+  #endif
+#endif
 #include "html_ui.h"
 #include "html_settings.h"
 #include "html_other.h"
@@ -8,20 +15,30 @@
 #endif
 #ifndef WLED_DISABLE_PXMAGIC
   #include "html_pxmagic.h"
+  // Ensure PAGE_pxmagic_length is declared
+  #ifndef PAGE_pxmagic_length
+  extern const uint16_t PAGE_pxmagic_length;
+  #endif
 #endif
 #include "html_cpal.h"
+
+// Ensure PAGE_index_length is declared
+#ifndef PAGE_index_length
+extern const uint16_t PAGE_index_length;
+#endif
 
 // define flash strings once (saves flash memory)
 static const char s_redirecting[] PROGMEM = "Redirecting...";
 static const char s_content_enc[] PROGMEM = "Content-Encoding";
 static const char s_unlock_ota [] PROGMEM = "Please unlock OTA in security settings!";
 static const char s_unlock_cfg [] PROGMEM = "Please unlock settings using PIN code!";
+static const char s_rebooting  [] PROGMEM = "Rebooting now...";
 static const char s_notimplemented[] PROGMEM = "Not implemented";
 static const char s_accessdenied[]   PROGMEM = "Access Denied";
 static const char _common_js[]       PROGMEM = "/common.js";
 
 //Is this an IP?
-static bool isIp(String str) {
+static bool isIp(const String &str) {
   for (size_t i = 0; i < str.length(); i++) {
     int c = str.charAt(i);
     if (c != '.' && (c < '0' || c > '9')) {
@@ -29,6 +46,22 @@ static bool isIp(String str) {
     }
   }
   return true;
+}
+
+static bool inSubnet(const IPAddress &ip, const IPAddress &subnet, const IPAddress &mask) {
+  return (((uint32_t)ip & (uint32_t)mask) == ((uint32_t)subnet & (uint32_t)mask));
+}
+
+static bool inSameSubnet(const IPAddress &client) {
+  return inSubnet(client, Network.localIP(), Network.subnetMask());
+}
+
+static bool inLocalSubnet(const IPAddress &client) {
+  return  inSubnet(client, IPAddress(10,0,0,0),    IPAddress(255,0,0,0))                  // 10.x.x.x
+      ||  inSubnet(client, IPAddress(192,168,0,0), IPAddress(255,255,0,0))                // 192.168.x.x
+      ||  inSubnet(client, IPAddress(172,16,0,0),  IPAddress(255,240,0,0))                // 172.16.x.x
+      || (inSubnet(client, IPAddress(4,3,2,0),     IPAddress(255,255,255,0)) && apActive) // WLED AP
+      ||  inSameSubnet(client);                                                           // same subnet as WLED device
 }
 
 /*
@@ -130,7 +163,7 @@ static String msgProcessor(const String& var)
     if (optt < 60) //redirect to settings after optionType seconds
     {
       messageBody += F("<script>setTimeout(RS,");
-      messageBody +=String(optt*1000);
+      messageBody += String(optt*1000);
       messageBody += F(")</script>");
     } else if (optt < 120) //redirect back after optionType-60 seconds, unused
     {
@@ -152,9 +185,9 @@ static String msgProcessor(const String& var)
   return String();
 }
 
-static void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+static void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool isFinal) {
   if (!correctPIN) {
-    if (final) request->send(401, FPSTR(CONTENT_TYPE_PLAIN), FPSTR(s_unlock_cfg));
+    if (isFinal) request->send(401, FPSTR(CONTENT_TYPE_PLAIN), FPSTR(s_unlock_cfg));
     return;
   }
   if (!index) {
@@ -170,13 +203,13 @@ static void handleUpload(AsyncWebServerRequest *request, const String& filename,
   if (len) {
     request->_tempFile.write(data,len);
   }
-  if (final) {
+  if (isFinal) {
     request->_tempFile.close();
     if (filename.indexOf(F("cfg.json")) >= 0) { // check for filename with or without slash
       doReboot = true;
       request->send(200, FPSTR(CONTENT_TYPE_PLAIN), F("Configuration restore successful.\nRebooting..."));
     } else {
-      if (filename.indexOf(F("palette")) >= 0 && filename.indexOf(F(".json")) >= 0) strip.loadCustomPalettes();
+      if (filename.indexOf(F("palette")) >= 0 && filename.indexOf(F(".json")) >= 0) loadCustomPalettes();
       request->send(200, FPSTR(CONTENT_TYPE_PLAIN), F("File Uploaded!"));
     }
     cacheInvalidate++;
@@ -270,7 +303,7 @@ void initServer()
   });
 
   server.on(F("/reset"), HTTP_GET, [](AsyncWebServerRequest *request){
-    serveMessage(request, 200,F("Rebooting now..."),F("Please wait ~10 seconds..."),129);
+    serveMessage(request, 200, FPSTR(s_rebooting), F("Please wait ~10 seconds."), 131);
     doReboot = true;
   });
 
@@ -288,7 +321,7 @@ void initServer()
     bool isConfig = false;
 
     if (!requestJSONBufferLock(14)) {
-      serveJsonError(request, 503, ERR_NOBUF);
+      request->deferResponse();
       return;
     }
 
@@ -325,10 +358,15 @@ void initServer()
     if (verboseResponse) {
       if (!isConfig) {
         lastInterfaceUpdate = millis(); // prevent WS update until cooldown
-        interfaceUpdateCallMode = CALL_MODE_WS_SEND; // schedule WS update
-        serveJson(request); return; //if JSON contains "v"
+        interfaceUpdateCallMode = CALL_MODE_WS_SEND; // override call mode & schedule WS update
+        #ifndef WLED_DISABLE_MQTT
+        // publish state to MQTT as requested in wled#4643 even if only WS response selected
+        publishMqtt();
+        #endif
+        serveJson(request);
+        return; //if JSON contains "v"
       } else {
-        doSerializeConfig = true; //serializeConfig(); //Save new settings to FS
+        configNeedsWrite = true; //Save new settings to FS
       }
     }
     request->send(200, CONTENT_TYPE_JSON, F("{\"success\":true}"));
@@ -344,7 +382,7 @@ void initServer()
   });
 
   server.on(F("/freeheap"), HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(200, FPSTR(CONTENT_TYPE_PLAIN), (String)ESP.getFreeHeap());
+    request->send(200, FPSTR(CONTENT_TYPE_PLAIN), (String)getFreeHeapSize());
   });
 
 #ifdef WLED_ENABLE_USERMOD_PAGE
@@ -359,7 +397,7 @@ void initServer()
 
   server.on(F("/upload"), HTTP_POST, [](AsyncWebServerRequest *request) {},
         [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data,
-                      size_t len, bool final) {handleUpload(request, filename, index, data, len, final);}
+                      size_t len, bool isFinal) {handleUpload(request, filename, index, data, len, isFinal);}
   );
 
   createEditHandler(correctPIN);
@@ -386,10 +424,19 @@ void initServer()
     if (Update.hasError()) {
       serveMessage(request, 500, F("Update failed!"), F("Please check your file and retry!"), 254);
     } else {
-      serveMessage(request, 200, F("Update successful!"), F("Rebooting..."), 131);
+      serveMessage(request, 200, F("Update successful!"), FPSTR(s_rebooting), 131);
+      #ifndef ESP8266
+      bootloopCheckOTA(); // let the bootloop-checker know there was an OTA update
+      #endif
       doReboot = true;
     }
-  },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+  },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool isFinal){
+    IPAddress client  = request->client()->remoteIP();
+    if (((otaSameSubnet && !inSameSubnet(client)) && !strlen(settingsPIN)) || (!otaSameSubnet && !inLocalSubnet(client))) {
+      DEBUG_PRINTLN(F("Attempted OTA update from different/non-local subnet!"));
+      request->send(401, FPSTR(CONTENT_TYPE_PLAIN), FPSTR(s_accessdenied));
+      return;
+    }
     if (!correctPIN || otaLock) return;
     if(!index){
       DEBUG_PRINTLN(F("OTA Update Start"));
@@ -399,14 +446,15 @@ void initServer()
       UsermodManager::onUpdateBegin(true); // notify usermods that update is about to begin (some may require task de-init)
       lastEditTime = millis(); // make sure PIN does not lock during update
       strip.suspend();
-      #ifdef ESP8266
+      backupConfig(); // backup current config in case the update ends badly
       strip.resetSegments();  // free as much memory as you can
+      #ifdef ESP8266
       Update.runAsync(true);
       #endif
       Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000);
     }
     if(!Update.hasError()) Update.write(data, len);
-    if(final){
+    if(isFinal){
       if(Update.end(true)){
         DEBUG_PRINTLN(F("Update Success"));
       } else {
@@ -420,19 +468,16 @@ void initServer()
     }
   });
 #else
-  server.on(_update, HTTP_GET, [](AsyncWebServerRequest *request){
-    serveMessage(request, 501, FPSTR(s_notimplemented), F("OTA updating is disabled in this build."), 254);
-  });
+  const auto notSupported = [](AsyncWebServerRequest *request){
+    serveMessage(request, 501, FPSTR(s_notimplemented), F("This build does not support OTA update."), 254);
+  };
+  server.on(_update, HTTP_GET, notSupported);
+  server.on(_update, HTTP_POST, notSupported, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool isFinal){});
 #endif
-
 
 #ifdef WLED_ENABLE_DMX
   server.on(F("/dmxmap"), HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, FPSTR(CONTENT_TYPE_HTML), PAGE_dmxmap     , dmxProcessor);
-  });
-#else
-  server.on(F("/dmxmap"), HTTP_GET, [](AsyncWebServerRequest *request){
-    serveMessage(request, 501, FPSTR(s_notimplemented), F("DMX support is not enabled in this build."), 254);
+    request->send_P(200, FPSTR(CONTENT_TYPE_HTML), PAGE_dmxmap, dmxProcessor);
   });
 #endif
 
@@ -445,18 +490,20 @@ void initServer()
     }
   });
 
-#ifdef WLED_ENABLE_PIXART
+#ifndef WLED_DISABLE_2D
+  #ifdef WLED_ENABLE_PIXART
   static const char _pixart_htm[] PROGMEM = "/pixart.htm";
   server.on(_pixart_htm, HTTP_GET, [](AsyncWebServerRequest *request) {
     handleStaticContent(request, FPSTR(_pixart_htm), 200, FPSTR(CONTENT_TYPE_HTML), PAGE_pixart, PAGE_pixart_L);
   });
-#endif
+  #endif
 
-#ifndef WLED_DISABLE_PXMAGIC
+  #ifndef WLED_DISABLE_PXMAGIC
   static const char _pxmagic_htm[] PROGMEM = "/pxmagic.htm";
   server.on(_pxmagic_htm, HTTP_GET, [](AsyncWebServerRequest *request) {
     handleStaticContent(request, FPSTR(_pxmagic_htm), 200, FPSTR(CONTENT_TYPE_HTML), PAGE_pxmagic, PAGE_pxmagic_L);
   });
+  #endif
 #endif
 
   static const char _cpal_htm[] PROGMEM = "/cpal.htm";
@@ -567,18 +614,24 @@ void serveSettings(AsyncWebServerRequest* request, bool post) {
   //else if (url.indexOf("/edit")   >= 0) subPage = 10;
   else subPage = SUBPAGE_WELCOME;
 
-  if (!correctPIN && strlen(settingsPIN) > 0 && (subPage > 0 && subPage < 11)) {
+  bool pinRequired = !correctPIN && strlen(settingsPIN) > 0 && (subPage > (WLED_WIFI_CONFIGURED ? SUBPAGE_MENU : SUBPAGE_WIFI) && subPage < SUBPAGE_LOCK);
+  if (pinRequired) {
     originalSubPage = subPage;
     subPage = SUBPAGE_PINREQ; // require PIN
   }
 
   // if OTA locked or too frequent PIN entry requests fail hard
-  if ((subPage == SUBPAGE_WIFI && wifiLock && otaLock) || (post && !correctPIN && millis()-lastEditTime < PIN_RETRY_COOLDOWN))
+  if ((subPage == SUBPAGE_WIFI && wifiLock && otaLock) || (post && pinRequired && millis()-lastEditTime < PIN_RETRY_COOLDOWN))
   {
     serveMessage(request, 401, FPSTR(s_accessdenied), FPSTR(s_unlock_ota), 254); return;
   }
 
   if (post) { //settings/set POST request, saving
+    IPAddress client = request->client()->remoteIP();
+    if (!inLocalSubnet(client)) { // includes same subnet check
+      serveMessage(request, 401, FPSTR(s_accessdenied), FPSTR(s_redirecting), 123);
+      return;
+    }
     if (subPage != SUBPAGE_WIFI || !(wifiLock && otaLock)) handleSettingsSet(request, subPage);
 
     char s[32];
@@ -609,7 +662,7 @@ void serveSettings(AsyncWebServerRequest* request, bool post) {
       if (!s2[0]) strcpy_P(s2, s_redirecting);
 
       bool redirectAfter9s = (subPage == SUBPAGE_WIFI || ((subPage == SUBPAGE_SEC || subPage == SUBPAGE_UM) && doReboot));
-      serveMessage(request, (correctPIN ? 200 : 401), s, s2, redirectAfter9s ? 129 : (correctPIN ? 1 : 3));
+      serveMessage(request, (!pinRequired ? 200 : 401), s, s2, redirectAfter9s ? 129 : (!pinRequired ? 1 : 3));
       return;
     }
   }
@@ -630,7 +683,21 @@ void serveSettings(AsyncWebServerRequest* request, bool post) {
     case SUBPAGE_DMX     :  content = PAGE_settings_dmx;  len = PAGE_settings_dmx_length;  break;
 #endif
     case SUBPAGE_UM      :  content = PAGE_settings_um;   len = PAGE_settings_um_length;   break;
-    case SUBPAGE_UPDATE  :  content = PAGE_update;        len = PAGE_update_length;        break;
+#ifndef WLED_DISABLE_OTA
+    case SUBPAGE_UPDATE  :  content = PAGE_update;        len = PAGE_update_length;
+      #ifdef ARDUINO_ARCH_ESP32
+      if (request->hasArg(F("revert")) && inLocalSubnet(request->client()->remoteIP()) && Update.canRollBack()) {
+        doReboot = Update.rollBack();
+        if (doReboot) {
+          serveMessage(request, 200, F("Reverted to previous version!"), FPSTR(s_rebooting), 133);
+        } else {
+          serveMessage(request, 500, F("Rollback failed!"), F("Please reboot and retry."), 254);
+        }
+        return;
+      }
+      #endif
+      break;
+#endif
 #ifndef WLED_DISABLE_2D
     case SUBPAGE_2D      :  content = PAGE_settings_2D;   len = PAGE_settings_2D_length;   break;
 #endif

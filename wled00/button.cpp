@@ -29,7 +29,7 @@ void shortPressAction(uint8_t b)
 #ifndef WLED_DISABLE_MQTT
   // publish MQTT message
   if (buttonPublishMqtt && WLED_MQTT_CONNECTED) {
-    char subuf[64];
+    char subuf[MQTT_MAX_TOPIC_LEN + 32];
     sprintf_P(subuf, _mqtt_topic_button, mqttDeviceTopic, (int)b);
     mqtt->publish(subuf, 0, false, "short");
   }
@@ -62,7 +62,7 @@ void longPressAction(uint8_t b)
 #ifndef WLED_DISABLE_MQTT
   // publish MQTT message
   if (buttonPublishMqtt && WLED_MQTT_CONNECTED) {
-    char subuf[64];
+    char subuf[MQTT_MAX_TOPIC_LEN + 32];
     sprintf_P(subuf, _mqtt_topic_button, mqttDeviceTopic, (int)b);
     mqtt->publish(subuf, 0, false, "long");
   }
@@ -74,7 +74,7 @@ void doublePressAction(uint8_t b)
   if (!macroDoublePress[b]) {
     switch (b) {
       //case 0: toggleOnOff(); colorUpdated(CALL_MODE_BUTTON); break; //instant short press on button 0 if no macro set
-      case 1: ++effectPalette %= strip.getPaletteCount(); colorUpdated(CALL_MODE_BUTTON); break;
+      case 1: ++effectPalette %= getPaletteCount(); colorUpdated(CALL_MODE_BUTTON); break;
     }
   } else {
     applyPreset(macroDoublePress[b], CALL_MODE_BUTTON_PRESET);
@@ -83,19 +83,19 @@ void doublePressAction(uint8_t b)
 #ifndef WLED_DISABLE_MQTT
   // publish MQTT message
   if (buttonPublishMqtt && WLED_MQTT_CONNECTED) {
-    char subuf[64];
+    char subuf[MQTT_MAX_TOPIC_LEN + 32];
     sprintf_P(subuf, _mqtt_topic_button, mqttDeviceTopic, (int)b);
     mqtt->publish(subuf, 0, false, "double");
   }
 #endif
 }
 
-bool isButtonPressed(uint8_t i)
+bool isButtonPressed(uint8_t b)
 {
-  if (btnPin[i]<0) return false;
-  unsigned pin = btnPin[i];
+  if (btnPin[b]<0) return false;
+  unsigned pin = btnPin[b];
 
-  switch (buttonType[i]) {
+  switch (buttonType[b]) {
     case BTN_TYPE_NONE:
     case BTN_TYPE_RESERVED:
       break;
@@ -113,7 +113,7 @@ bool isButtonPressed(uint8_t i)
         #ifdef SOC_TOUCH_VERSION_2 //ESP32 S2 and S3 provide a function to check touch state (state is updated in interrupt)
         if (touchInterruptGetLastStatus(pin)) return true;
         #else
-        if (digitalPinToTouchChannel(btnPin[i]) >= 0 && touchRead(pin) <= touchThreshold) return true;
+        if (digitalPinToTouchChannel(btnPin[b]) >= 0 && touchRead(pin) <= touchThreshold) return true;
         #endif
       #endif
      break;
@@ -151,7 +151,7 @@ void handleSwitch(uint8_t b)
 #ifndef WLED_DISABLE_MQTT
     // publish MQTT message
     if (buttonPublishMqtt && WLED_MQTT_CONNECTED) {
-      char subuf[64];
+      char subuf[MQTT_MAX_TOPIC_LEN + 32];
       if (buttonType[b] == BTN_TYPE_PIR_SENSOR) sprintf_P(subuf, PSTR("%s/motion/%d"), mqttDeviceTopic, (int)b);
       else sprintf_P(subuf, _mqtt_topic_button, mqttDeviceTopic, (int)b);
       mqtt->publish(subuf, 0, false, !buttonPressedBefore[b] ? "off" : "on");
@@ -226,8 +226,8 @@ void handleAnalog(uint8_t b)
       effectIntensity = aRead;
     } else if (macroDoublePress[b] == 247) {
       // selected palette
-      effectPalette = map(aRead, 0, 252, 0, strip.getPaletteCount()-1);
-      effectPalette = constrain(effectPalette, 0, strip.getPaletteCount()-1);  // map is allowed to "overshoot", so we need to contrain the result
+      effectPalette = map(aRead, 0, 252, 0, getPaletteCount()-1);
+      effectPalette = constrain(effectPalette, 0, getPaletteCount()-1);  // map is allowed to "overshoot", so we need to contrain the result
     } else if (macroDoublePress[b] == 200) {
       // primary color, hue, full saturation
       colorHStoRGB(aRead*256,255,colPri);

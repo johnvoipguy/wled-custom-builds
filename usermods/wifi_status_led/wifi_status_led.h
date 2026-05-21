@@ -9,6 +9,10 @@
   #define WIFI_STATUS_LED_INVERTED true
 #endif
 
+#ifndef USERMOD_ID_WIFI_STATUS_LED
+  #define USERMOD_ID_WIFI_STATUS_LED 9901
+#endif
+
 class WiFiStatusLEDUsermod : public Usermod {
   private:
     bool enabled = true;

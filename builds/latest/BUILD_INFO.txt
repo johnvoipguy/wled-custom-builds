@@ -1,18 +1,17 @@
 SP530E WLED Firmware Build
 ==========================
-Built: Tue Sep 23 07:09:17 UTC 2025
-Commit: fac82b7f7d274e4715a660dd84bbc16caa1d7857
-Branch: sp530e-mods
+Built: Fri Sep 26 05:40:42 UTC 2025
+Commit: f5ec0d2f2760bf18147fd5106dbc640803e0cbd7
+Branch: sp530e-main
 
 FILES:
-total 4.7M
--rw-r--r-- 1 runner runner 1.6M Sep 23 07:09 App.bin
--rw-r--r-- 1 runner runner  167 Sep 23 07:09 BUILD_INFO.txt
--rw-r--r-- 1 runner runner  13K Sep 23 07:09 Bootloader.bin
--rw-r--r-- 1 runner runner 3.0K Sep 23 07:09 Partitions.bin
--rw-r--r-- 1 runner runner  458 Sep 23 07:06 README.md
--rw-r--r-- 1 runner runner 1.6M Sep 23 07:09 WLED_SP530E_App_Latest.bin
--rw-r--r-- 1 runner runner 1.6M Sep 23 07:09 WLED_SP530E_Full_Latest.bin
+total 3.7M
+-rw-r--r-- 1 runner runner 1.2M Sep 26 05:40 App.bin
+-rw-r--r-- 1 runner runner  167 Sep 26 05:40 BUILD_INFO.txt
+-rw-r--r-- 1 runner runner  12K Sep 26 05:40 Bootloader.bin
+-rw-r--r-- 1 runner runner 3.0K Sep 26 05:40 Partitions.bin
+-rw-r--r-- 1 runner runner 1.2M Sep 26 05:40 WLED_SP530E_App_Latest.bin
+-rw-r--r-- 1 runner runner 1.3M Sep 26 05:40 WLED_SP530E_Full_Latest.bin
 
 FLASHING INSTRUCTIONS:
 ======================

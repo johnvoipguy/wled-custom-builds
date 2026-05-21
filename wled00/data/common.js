@@ -2,7 +2,7 @@ var d=document;
 var loc = false, locip, locproto = "http:";
 
 function H(pg="")   { window.open("https://kno.wled.ge/"+pg); }
-function GH()       { window.open("https://github.com/Aircoookie/WLED"); }
+function GH()       { window.open("https://github.com/wled-dev/WLED"); }
 function gId(c)     { return d.getElementById(c); } // getElementById
 function cE(e)      { return d.createElement(e); } // createElement
 function gEBCN(c)   { return d.getElementsByClassName(c); } // getElementsByClassName
@@ -13,7 +13,7 @@ function isN(n)     { return !isNaN(parseFloat(n)) && isFinite(n); } // isNumber
 // https://stackoverflow.com/questions/3885817/how-do-i-check-that-a-number-is-float-or-integer
 function isF(n)     { return n === +n && n !== (n|0); } // isFloat
 function isI(n)     { return n === +n && n === (n|0); } // isInteger
-function toggle(el) { gId(el).classList.toggle("hide"); gId('No'+el).classList.toggle("hide"); }
+function toggle(el) { gId(el).classList.toggle("hide"); let n = gId('No'+el); if (n) n.classList.toggle("hide"); }
 function tooltip(cont=null) {
 	d.querySelectorAll((cont?cont+" ":"")+"[title]").forEach((element)=>{
 		element.addEventListener("pointerover", ()=>{

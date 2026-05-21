@@ -9,6 +9,10 @@
   #define BOOT_STATUS_LED_INVERTED true
 #endif
 
+#ifndef USERMOD_ID_BOOT_STATUS_LED
+  #define USERMOD_ID_BOOT_STATUS_LED 9902
+#endif
+
 class BootStatusLEDUsermod : public Usermod {
   private:
     bool enabled = true;
