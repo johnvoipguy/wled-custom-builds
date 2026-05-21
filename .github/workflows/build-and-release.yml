@@ -1,0 +1,174 @@
+name: Build and Release SP530E
+
+on:
+  push:
+    branches: [ sp530e-mods ]
+    paths:
+      - 'platformio.ini'
+      - 'wled00/**'
+      - 'usermods/**'
+      - 'lib/**'
+      - 'include/**'
+      - 'tools/**'
+      - '.github/workflows/build-and-release.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install PlatformIO and esptool
+      run: |
+        python -m pip install --upgrade pip
+        pip install --upgrade platformio esptool
+        
+    - name: Install Node.js dependencies
+      run: npm ci
+      
+    - name: Build SP530E firmware
+      run: |
+        echo "🔨 Building SP530E firmware..."
+        echo "Available environments:"
+        pio project config --json-output | grep -E "env:|sp530e"
+        echo "Building only sp530e environment:"
+        pio run -e sp530e --verbose
+        echo "Build completed. Checking what was built:"
+        ls -la .pio/build/
+        
+    - name: Prepare user-friendly binaries
+      run: |
+        BUILD_DIR=".pio/build/sp530e"
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        
+        # Create builds directories
+        mkdir -p builds/latest
+        mkdir -p "builds/build_${TIMESTAMP}"
+        
+        echo "📦 Creating user-friendly firmware packages..."
+        
+        # Check what was built
+        echo "Build directory contents:"
+        ls -la "${BUILD_DIR}/" || echo "❌ Build failed - no output directory"
+        
+        if [ -d "${BUILD_DIR}" ]; then
+          # 1. Full firmware (bootloader + partitions + app merged)
+          if [ -f "${BUILD_DIR}/firmware.bin" ]; then
+            echo "✅ Found firmware.bin"
+            
+            # Try to create merged firmware
+            if [ -f "${BUILD_DIR}/bootloader.bin" ] && [ -f "${BUILD_DIR}/partitions.bin" ]; then
+              echo "🔗 Creating merged firmware..."
+              python -m esptool --chip esp32c3 merge_bin -o "builds/latest/WLED_SP530E_Full_Latest.bin" \
+                --flash_mode dio --flash_freq 40m --flash_size 4MB \
+                0x0000 "${BUILD_DIR}/bootloader.bin" \
+                0x8000 "${BUILD_DIR}/partitions.bin" \
+                0x10000 "${BUILD_DIR}/firmware.bin"
+            else
+              echo "⚠️ Using firmware.bin as full image"
+              cp "${BUILD_DIR}/firmware.bin" "builds/latest/WLED_SP530E_Full_Latest.bin"
+            fi
+            
+            # 2. App-only for OTA
+            cp "${BUILD_DIR}/firmware.bin" "builds/latest/WLED_SP530E_App_Latest.bin"
+            
+            # 3. Individual components
+            [ -f "${BUILD_DIR}/bootloader.bin" ] && cp "${BUILD_DIR}/bootloader.bin" "builds/latest/Bootloader.bin"
+            [ -f "${BUILD_DIR}/partitions.bin" ] && cp "${BUILD_DIR}/partitions.bin" "builds/latest/Partitions.bin"
+            cp "${BUILD_DIR}/firmware.bin" "builds/latest/App.bin"
+            
+            # 4. Timestamped backup
+            cp -r builds/latest/* "builds/build_${TIMESTAMP}/"
+            
+            echo "✅ Created firmware packages:"
+            ls -lh builds/latest/
+            
+            # 5. Update build info
+            echo "SP530E WLED Firmware Build" > "builds/latest/BUILD_INFO.txt"
+            echo "==========================" >> "builds/latest/BUILD_INFO.txt"
+            echo "Built: $(date)" >> "builds/latest/BUILD_INFO.txt"
+            echo "Commit: ${GITHUB_SHA}" >> "builds/latest/BUILD_INFO.txt"
+            echo "Branch: ${GITHUB_REF_NAME}" >> "builds/latest/BUILD_INFO.txt"
+            echo "" >> "builds/latest/BUILD_INFO.txt"
+            echo "FILES:" >> "builds/latest/BUILD_INFO.txt"
+            ls -lh builds/latest/ >> "builds/latest/BUILD_INFO.txt"
+            echo "" >> "builds/latest/BUILD_INFO.txt"
+            echo "FLASHING INSTRUCTIONS:" >> "builds/latest/BUILD_INFO.txt"
+            echo "======================" >> "builds/latest/BUILD_INFO.txt"
+            echo "" >> "builds/latest/BUILD_INFO.txt"
+            echo "🔌 UART Flashing (First Time Setup):" >> "builds/latest/BUILD_INFO.txt"
+            echo "esptool.py --chip esp32c3 --port COM3 --baud 460800 write_flash 0x0000 WLED_SP530E_Full_Latest.bin" >> "builds/latest/BUILD_INFO.txt"
+            echo "" >> "builds/latest/BUILD_INFO.txt"
+            echo "📦 PlatformIO Flashing:" >> "builds/latest/BUILD_INFO.txt"
+            echo "pio run -e sp530e -t upload" >> "builds/latest/BUILD_INFO.txt"
+            echo "" >> "builds/latest/BUILD_INFO.txt"
+            echo "🔄 OTA Updates (Existing Installation):" >> "builds/latest/BUILD_INFO.txt"
+            echo "- Upload WLED_SP530E_App_Latest.bin via WLED web interface" >> "builds/latest/BUILD_INFO.txt"
+            echo "- Go to Settings → Security & Updates → Manual OTA" >> "builds/latest/BUILD_INFO.txt"
+          
+          else
+            echo "❌ No firmware.bin found in build directory"
+          fi
+        fi
+        
+    - name: Commit binaries to repository
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add builds/
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Auto-update SP530E binaries [skip ci]"
+          git push
+          echo "✅ Binaries updated in repository!"
+        fi
+
+    - name: Create GitHub Release
+      if: github.ref == 'refs/heads/sp530e-mods'
+      run: |
+        # Create release tag and GitHub release
+        RELEASE_TAG="sp530e-v$(date +%Y%m%d-%H%M%S)"
+        RELEASE_NAME="SP530E WLED Firmware - $(date +'%Y-%m-%d %H:%M')"
+        
+        echo "Creating release: $RELEASE_TAG"
+        
+        # Create release with binaries
+        gh release create "$RELEASE_TAG" \
+          "builds/latest/WLED_SP530E_Full_Latest.bin#SP530E Full Firmware (UART Flash)" \
+          "builds/latest/WLED_SP530E_App_Latest.bin#SP530E App Only (OTA Update)" \
+          "builds/latest/BUILD_INFO.txt#Build Information & Instructions" \
+          --title "$RELEASE_NAME" \
+          --notes "**SP530E WLED Firmware Build**
+
+        🎯 **Optimized for SP530E Controllers** - ESP32-C3 with audio reactive support
+
+        ## 📦 Files Included:
+        - **WLED_SP530E_Full_Latest.bin** - Complete firmware for UART flashing (1.6MB)
+        - **WLED_SP530E_App_Latest.bin** - App-only for OTA updates (1.6MB)  
+        - **BUILD_INFO.txt** - Detailed flashing instructions
+
+        ## 🔌 Quick Flash:
+        \`\`\`bash
+        esptool.py --chip esp32c3 --port COM3 --baud 460800 write_flash 0x0000 WLED_SP530E_Full_Latest.bin
+        \`\`\`
+
+        ## 🔄 OTA Update:
+        Upload **WLED_SP530E_App_Latest.bin** via WLED web interface
+
+        **Built from commit:** ${GITHUB_SHA:0:7}
+        **Build time:** $(date)" \
+          --latest
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
