@@ -1,17 +1,18 @@
 seeed_xiao_esp32s3v2 WLED Firmware Build
 ==========================
-Built: Thu May 21 22:18:51 UTC 2026
-Commit: fcef686e0b659267498e27be3dd7942f42e6a219
+Built: Thu May 21 22:26:11 UTC 2026
+Commit: e4c587072f1eb893ca29e6453e6e42ecf3e0fdc5
 Branch: seeed-xiao-16.0.0
 
 FILES:
-total 3.5M
--rw-r--r-- 1 runner runner 1.2M May 21 22:18 App.bin
--rw-r--r-- 1 runner runner  187 May 21 22:18 BUILD_INFO.txt
--rw-r--r-- 1 runner runner  14K May 21 22:18 Bootloader.bin
--rw-r--r-- 1 runner runner 3.0K May 21 22:18 Partitions.bin
--rw-r--r-- 1 runner runner 1.2M May 21 22:18 WLED_seeed_xiao_esp32s3_Full_Latest.bin
--rw-r--r-- 1 runner runner 1.2M May 21 22:18 WLED_seeed_xiao_esp32s3v2_App_Latest.bin
+total 4.7M
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 App.bin
+-rw-r--r-- 1 runner runner  187 May 21 22:26 BUILD_INFO.txt
+-rw-r--r-- 1 runner runner  14K May 21 22:26 Bootloader.bin
+-rw-r--r-- 1 runner runner 3.0K May 21 22:26 Partitions.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:23 WLED_seeed_xiao_esp32s3_Full_Latest.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 WLED_seeed_xiao_esp32s3v2_App_Latest.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 WLED_seeed_xiao_esp32s3v2_Full_Latest.bin
 
 FLASHING INSTRUCTIONS:
 ======================
