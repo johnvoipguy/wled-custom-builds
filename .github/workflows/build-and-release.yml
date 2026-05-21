@@ -47,7 +47,7 @@ jobs:
         
     - name: Prepare user-friendly binaries
       run: |
-        BUILD_DIR=".pio/build/xiao"
+        BUILD_DIR=".pio/build/seeed_xiao_esp32s3v2"
         TIMESTAMP=$(date +%Y%m%d_%H%M%S)
         
         # Create builds directories
