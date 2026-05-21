@@ -1,0 +1,8 @@
+{
+  "name": "wifi_status_led",
+  "description": "WiFi Status LED Usermod for WLED", 
+  "version": "1.0.0",
+  "build": {
+    "libArchive": false
+  }
+}
