@@ -26,7 +26,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.10'
     
     - name: Install PlatformIO and esptool
       run: |
@@ -69,8 +69,8 @@ jobs:
             # Try to create merged firmware
             if [ -f "${BUILD_DIR}/bootloader.bin" ] && [ -f "${BUILD_DIR}/partitions.bin" ]; then
               echo "🔗 Creating merged firmware..."
-              python -m esptool --chip esp32c3 merge_bin -o "builds/latest/WLED_SP530E_Full_Latest.bin" \
-                --flash_mode dio --flash_freq 40m --flash_size 4MB \
+              python -m esptool --chip esp32c3 merge-bin -o "builds/latest/WLED_SP530E_Full_Latest.bin" \
+                --flash-mode dio --flash_freq 40m --flash_size 4MB \
                 0x0000 "${BUILD_DIR}/bootloader.bin" \
                 0x8000 "${BUILD_DIR}/partitions.bin" \
                 0x10000 "${BUILD_DIR}/firmware.bin"
@@ -107,7 +107,7 @@ jobs:
             echo "======================" >> "builds/latest/BUILD_INFO.txt"
             echo "" >> "builds/latest/BUILD_INFO.txt"
             echo "🔌 UART Flashing (First Time Setup):" >> "builds/latest/BUILD_INFO.txt"
-            echo "esptool.py --chip esp32c3 --port COM3 --baud 460800 write_flash 0x0000 WLED_SP530E_Full_Latest.bin" >> "builds/latest/BUILD_INFO.txt"
+            echo "esptool.py --chip esp32c3 --port COM3 --baud 460800 write-flash 0x0000 WLED_SP530E_Full_Latest.bin" >> "builds/latest/BUILD_INFO.txt"
             echo "" >> "builds/latest/BUILD_INFO.txt"
             echo "📦 PlatformIO Flashing:" >> "builds/latest/BUILD_INFO.txt"
             echo "pio run -e sp530e -t upload" >> "builds/latest/BUILD_INFO.txt"
@@ -139,7 +139,7 @@ jobs:
       if: github.ref == 'refs/heads/sp530e-mods'
       run: |
         # Create release tag and GitHub release
-        RELEASE_TAG="sp530e-v$(date +%Y%m%d-%H%M%S)"
+        RELEASE_TAG="sp530e-v16-$(date +%Y%m%d-%H%M%S)"
         RELEASE_NAME="SP530E WLED Firmware - $(date +'%Y-%m-%d %H:%M')"
         
         echo "Creating release: $RELEASE_TAG"
@@ -161,7 +161,7 @@ jobs:
 
         ## 🔌 Quick Flash:
         \`\`\`bash
-        esptool.py --chip esp32c3 --port COM3 --baud 460800 write_flash 0x0000 WLED_SP530E_Full_Latest.bin
+        esptool.py --chip esp32c3 --port COM3 --baud 460800 write-flash 0x0000 WLED_SP530E_Full_Latest.bin
         \`\`\`
 
         ## 🔄 OTA Update:
