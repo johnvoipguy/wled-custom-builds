@@ -73,5 +73,5 @@ jobs:
         echo  "custom_usermods = ${{ matrix.usermod }}" >> platformio_override.ini
         cat platformio_override.ini
 
-    - name: Build firmware
-      run: pio run -e ${{ matrix.environment }}    
+#    - name: Build firmware
+#      run: pio run -e ${{ matrix.environment }}    

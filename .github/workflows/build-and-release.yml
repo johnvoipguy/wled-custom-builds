@@ -70,7 +70,7 @@ jobs:
             if [ -f "${BUILD_DIR}/bootloader.bin" ] && [ -f "${BUILD_DIR}/partitions.bin" ]; then
               echo "🔗 Creating merged firmware..."
               python -m esptool --chip esp32c3 merge-bin -o "builds/latest/WLED_SP530E_Full_Latest.bin" \
-                --flash-mode dio --flash_freq 40m --flash_size 4MB \
+                --flash-mode dio --flash-freq 40m --flash_size 4MB \
                 0x0000 "${BUILD_DIR}/bootloader.bin" \
                 0x8000 "${BUILD_DIR}/partitions.bin" \
                 0x10000 "${BUILD_DIR}/firmware.bin"

@@ -1,0 +1,27 @@
+SP530E WLED Firmware Build
+==========================
+Built: Thu Sep 25 19:22:02 UTC 2025
+Commit: d6d22369b456ca0da2c65c960d4b06a6f3c1451a
+Branch: sp530e-main
+
+FILES:
+total 3.6M
+-rw-r--r-- 1 runner runner 1.2M Sep 25 19:22 App.bin
+-rw-r--r-- 1 runner runner  167 Sep 25 19:22 BUILD_INFO.txt
+-rw-r--r-- 1 runner runner  12K Sep 25 19:22 Bootloader.bin
+-rw-r--r-- 1 runner runner 3.0K Sep 25 19:22 Partitions.bin
+-rw-r--r-- 1 runner runner 1.2M Sep 25 19:22 WLED_SP530E_App_Latest.bin
+-rw-r--r-- 1 runner runner 1.3M Sep 25 19:22 WLED_SP530E_Full_Latest.bin
+
+FLASHING INSTRUCTIONS:
+======================
+
+🔌 UART Flashing (First Time Setup):
+esptool.py --chip esp32c3 --port COM3 --baud 460800 write_flash 0x0000 WLED_SP530E_Full_Latest.bin
+
+📦 PlatformIO Flashing:
+pio run -e sp530e -t upload
+
+🔄 OTA Updates (Existing Installation):
+- Upload WLED_SP530E_App_Latest.bin via WLED web interface
+- Go to Settings → Security & Updates → Manual OTA
