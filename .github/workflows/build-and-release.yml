@@ -2,7 +2,7 @@ name: Build and Release SP530E
 
 on:
   push:
-    branches: [ main, sp530e-mods ]
+    branches: [ sp530e-mods ]
     paths:
       - 'platformio.ini'
       - 'wled00/**'
@@ -27,29 +27,14 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-
-    - name: Set up Node.js 20
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
+    
     - name: Install PlatformIO and esptool
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade platformio esptool
-        echo "Installing Node.js 20 next....."
         
-    - name: Set up Node.js 20
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-          
     - name: Install Node.js dependencies
-      run: |
-        npm ci     
-        echo " installed npm CI"
-        npm run build
-        echo " built web files"
+      run: npm ci
       
     - name: Build SP530E firmware
       run: |
@@ -57,10 +42,10 @@ jobs:
         echo "Available environments:"
         pio project config --json-output | grep -E "env:|sp530e"
         echo "Building only sp530e environment:"
-        pio run -e sp530e
+        pio run -e sp530e --verbose
         echo "Build completed. Checking what was built:"
         ls -la .pio/build/
-      
+        
     - name: Prepare user-friendly binaries
       run: |
         BUILD_DIR=".pio/build/sp530e"
