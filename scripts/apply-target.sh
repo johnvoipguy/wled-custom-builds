@@ -22,7 +22,7 @@ copy_tree() {
   [ -d "$source_dir" ] || return 0
   mkdir -p "$dest_dir"
 
-  find "$source_dir" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' ! -name 'notes.md' | while IFS= read -r entry; do
+  find "$source_dir" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' ! -name 'notes.md' -print0 | while IFS= read -r -d '' entry; do
     cp -a "$entry" "$dest_dir/"
   done
 }

@@ -12,6 +12,9 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
 jobs:
   target_matrix:
     name: Plan Multi-Target Matrix
@@ -21,24 +24,25 @@ jobs:
       - name: Flatten starter target matrix
         id: matrix
         run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
+          ruby -e '
+            require "yaml"
+            require "json"
 
-          manifest = json.loads(Path('manifests/build-matrix.yml').read_text())
-          include = []
-          for target in manifest['targets']:
-            for version in target['versions']:
-              include.append({
-                'target': target['target'],
-                'display_name': target['display_name'],
-                'version': version['version'],
-                'wled_line': version['wled_line'],
-                'platformio_env': version['platformio_env'],
-              })
+            manifest = YAML.load_file("manifests/build-matrix.yml")
+            include = manifest.fetch("targets").flat_map do |target|
+              target.fetch("versions").map do |version|
+                {
+                  target: target.fetch("target"),
+                  display_name: target.fetch("display_name"),
+                  version: version.fetch("version"),
+                  wled_line: version.fetch("wled_line"),
+                  platformio_env: version.fetch("platformio_env")
+                }
+              end
+            end
 
-          print(f"matrix={json.dumps({'include': include})}")
-          PY
+            puts "matrix=#{JSON.generate({ include: include })}"
+          ' >> "$GITHUB_OUTPUT"
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
 

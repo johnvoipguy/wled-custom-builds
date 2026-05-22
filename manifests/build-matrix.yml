@@ -1,75 +1,46 @@
-{
-  "targets": [
-    {
-      "target": "sp530e",
-      "display_name": "SP530E",
-      "shared": {
-        "usermods": [
-          "boot_status_led",
-          "wifi_status_led"
-        ],
-        "partitions": [
-          "WLED_ESP32C3_4MB_audioreactive.csv"
-        ]
-      },
-      "versions": [
-        {
-          "version": "v15",
-          "wled_line": "0.15.x",
-          "platformio_env": "sp530e",
-          "notes": "Legacy SP530E release line carried forward into the neutral layout."
-        },
-        {
-          "version": "v16",
-          "wled_line": "16.x / main",
-          "platformio_env": "sp530e",
-          "notes": "Starter slot for the current SP530E mainline work."
-        }
-      ]
-    },
-    {
-      "target": "seeed-xiao-esp32s3",
-      "display_name": "Seeed Xiao ESP32S3",
-      "shared": {
-        "usermods": [],
-        "partitions": []
-      },
-      "versions": [
-        {
-          "version": "v15",
-          "wled_line": "0.15.x",
-          "platformio_env": "seeed_xiao_esp32s3",
-          "notes": "Starter slot for salvaging older Xiao-specific work without reviving branch-per-version clones."
-        },
-        {
-          "version": "v16",
-          "wled_line": "16.x / main",
-          "platformio_env": "seeed_xiao_esp32s3v2",
-          "notes": "Starter slot for the current Seeed Xiao ESP32S3 mainline work."
-        }
-      ]
-    },
-    {
-      "target": "waveshare-esp32s3-eth",
-      "display_name": "Waveshare ESP32S3 Ethernet",
-      "shared": {
-        "usermods": [],
-        "partitions": []
-      },
-      "versions": [
-        {
-          "version": "v15",
-          "wled_line": "0.15.x",
-          "platformio_env": "waveshare_esp32s3_eth",
-          "notes": "Starter slot for salvaging the existing Waveshare Ethernet v15-era customization work."
-        },
-        {
-          "version": "v16",
-          "wled_line": "16.x / main",
-          "platformio_env": "waveshare_esp32s3_eth",
-          "notes": "Starter slot for future Waveshare Ethernet mainline work."
-        }
-      ]
-    }
-  ]
-}
+targets:
+  - target: sp530e
+    display_name: SP530E
+    shared:
+      usermods:
+        - boot_status_led
+        - wifi_status_led
+      partitions:
+        - WLED_ESP32C3_4MB_audioreactive.csv
+    versions:
+      - version: v15
+        wled_line: 0.15.x
+        platformio_env: sp530e
+        notes: Legacy SP530E release line carried forward into the neutral layout.
+      - version: v16
+        wled_line: 16.x / main
+        platformio_env: sp530e
+        notes: Starter slot for the current SP530E mainline work.
+  - target: seeed-xiao-esp32s3
+    display_name: Seeed Xiao ESP32S3
+    shared:
+      usermods: []
+      partitions: []
+    versions:
+      - version: v15
+        wled_line: 0.15.x
+        platformio_env: seeed_xiao_esp32s3
+        notes: Starter slot for salvaging older Xiao-specific work without reviving branch-per-version clones.
+      - version: v16
+        wled_line: 16.x / main
+        platformio_env: seeed_xiao_esp32s3v2
+        notes: Starter slot for the current Seeed Xiao ESP32S3 mainline work.
+  - target: waveshare-esp32s3-eth
+    display_name: Waveshare ESP32S3 Ethernet
+    shared:
+      usermods: []
+      partitions: []
+    versions:
+      - version: v15
+        wled_line: 0.15.x
+        platformio_env: waveshare_esp32s3_eth
+        notes: Starter slot for salvaging the existing Waveshare Ethernet v15-era customization work.
+      - version: v16
+        wled_line: 16.x / main
+        platformio_env: waveshare_esp32s3_eth
+        notes: Starter slot for future Waveshare Ethernet mainline work.
