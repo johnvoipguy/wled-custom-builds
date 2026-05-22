@@ -34,14 +34,15 @@ targets:
   - target: waveshare-esp32s3-eth
     display_name: Waveshare ESP32S3 Ethernet
     shared:
+      platformio_env_fragment: targets/waveshare-esp32s3-eth/shared/platformio.env.ini
       usermods: []
       partitions: []
     versions:
       - version: v15
         wled_line: 0.15.x
         platformio_env: waveshare_esp32s3_eth
-        notes: Starter slot for salvaging the existing Waveshare Ethernet v15-era customization work.
+        notes: Active Waveshare line. Canonical env is in shared/platformio.env.ini; v15 owns preserved legacy firmware assets.
       - version: v16
         wled_line: 16.x / main
         platformio_env: waveshare_esp32s3_eth
-        notes: Starter slot for future Waveshare Ethernet mainline work.
+        notes: Future placeholder only; Waveshare migration and preserved assets are currently v15-focused.
