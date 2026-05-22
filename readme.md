@@ -4,7 +4,7 @@ This repository is being restructured into a neutral, multi-target home for cust
 
 ## Target highlights
 
-- **Waveshare ESP32-S3-ETH:** legacy custom W5500 SPI Ethernet support is documented in `targets/waveshare-esp32s3-eth/v15/notes.md` (documentation only in this repository so far; no port in this PR).
+- **Waveshare ESP32-S3-ETH:** W5500 SPI Ethernet support is documented in `targets/waveshare-esp32s3-eth/v15/notes.md`; this path targets dedicated Ethernet offload behavior and remains an active migration track.
 - **SP530E salvage:** `targets/sp530e/` currently carries the salvaged partition CSV and LED status usermods.
 - **Seeed Xiao ESP32S3:** current build notes/status live under `targets/seeed-xiao-esp32s3/`.
 
