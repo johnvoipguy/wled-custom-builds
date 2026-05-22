@@ -1,0 +1,28 @@
+seeed_xiao_esp32s3v2 WLED Firmware Build
+==========================
+Built: Thu May 21 22:26:11 UTC 2026
+Commit: e4c587072f1eb893ca29e6453e6e42ecf3e0fdc5
+Branch: seeed-xiao-16.0.0
+
+FILES:
+total 4.7M
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 App.bin
+-rw-r--r-- 1 runner runner  187 May 21 22:26 BUILD_INFO.txt
+-rw-r--r-- 1 runner runner  14K May 21 22:26 Bootloader.bin
+-rw-r--r-- 1 runner runner 3.0K May 21 22:26 Partitions.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:23 WLED_seeed_xiao_esp32s3_Full_Latest.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 WLED_seeed_xiao_esp32s3v2_App_Latest.bin
+-rw-r--r-- 1 runner runner 1.2M May 21 22:26 WLED_seeed_xiao_esp32s3v2_Full_Latest.bin
+
+FLASHING INSTRUCTIONS:
+======================
+
+🔌 UART Flashing (First Time Setup):
+esptool.py --chip esp32s3 write_flash 0x0000 WLED_seeed_xiao_esp32s3v2_Full_Latest.bin
+
+📦 PlatformIO Flashing:
+pio run -e seeed_xiao_esp32s3v2 -t upload
+
+🔄 OTA Updates (Existing Installation):
+- Upload WLED_seeed_xiao_esp32s3v2_App_Latest.bin via WLED web interface
+- Go to Settings → Security & Updates → Manual OTA
