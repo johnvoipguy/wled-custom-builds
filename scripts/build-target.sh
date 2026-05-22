@@ -109,7 +109,7 @@ fi
 if [ -z "$environment" ]; then
   environment=$(detect_environment_from_file "$target_env_fragment" || true)
 fi
-[ -n "$environment" ] || die "--environment is required (or provide targets/$target/shared/platformio.env.ini with at least one [env:<name>] section)"
+[ -n "$environment" ] || die "--environment is required (auto-detection checked $workspace/platformio.env.ini and $target_env_fragment)"
 
 printf 'Planned PlatformIO environment: %s\n' "$environment"
 printf 'Workspace: %s\n' "$workspace"

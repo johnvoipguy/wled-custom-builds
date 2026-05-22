@@ -97,7 +97,7 @@ jobs:
             fi
           done
 
-          [ -f "$artifact_dir/firmware.bin" ] || { echo "firmware.bin was not produced"; exit 1; }
+          [ -f "$artifact_dir/firmware.bin" ] || { echo "firmware.bin was not produced in $build_dir"; exit 1; }
 
           printf 'target=%s\nversion=%s\nenvironment=%s\nbuild_dir=%s\n' \
             "$TARGET" "$VERSION" "$environment" "$build_dir" > "$artifact_dir/build-metadata.txt"
@@ -105,12 +105,26 @@ jobs:
           if [ -n "$RELEASE_TAG_INPUT" ]; then
             release_tag="$RELEASE_TAG_INPUT"
           else
-            release_tag="${TARGET}-${VERSION}-${environment}-${GITHUB_RUN_NUMBER}"
+            short_sha="${GITHUB_SHA:-}"
+            if [ -n "$short_sha" ]; then
+              short_sha="${short_sha:0:7}"
+            else
+              short_sha="$(git rev-parse --short=7 HEAD)"
+            fi
+            release_tag="${TARGET}-${VERSION}-${environment}-${short_sha}"
           fi
+
+          release_files=()
+          for file in firmware.bin bootloader.bin partitions.bin build-metadata.txt; do
+            if [ -f "$artifact_dir/$file" ]; then
+              release_files+=("$artifact_dir/$file")
+            fi
+          done
 
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
           echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'release_files<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${release_files[@]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -120,12 +134,12 @@ jobs:
           if-no-files-found: error
 
       - name: Create release
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.package.outputs.release_tag }}
           name: ${{ steps.package.outputs.release_tag }}
-          files: ${{ steps.package.outputs.artifact_dir }}/*
+          files: ${{ steps.package.outputs.release_files }}
           generate_release_notes: true
 
       - name: Cleanup temporary workspace
