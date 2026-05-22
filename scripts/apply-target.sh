@@ -27,6 +27,19 @@ copy_tree() {
   done
 }
 
+copy_env_fragment() {
+  local source_file=$1
+  local dest_dir=$2
+
+  if [ ! -f "$source_file" ]; then
+    echo "No env fragment found at $source_file (skipped)"
+    return 0
+  fi
+  cp "$source_file" "$dest_dir/platformio.env.ini"
+  echo "Copied env fragment: $source_file -> $dest_dir/platformio.env.ini"
+  echo "  (include via extra_configs in platformio.ini if needed, or use as reference)"
+}
+
 target=
 version=
 workspace=
@@ -91,6 +104,7 @@ copy_tree "$shared_dir/usermods" "$workspace/usermods"
 copy_tree "$shared_dir/partitions" "$workspace/tools"
 copy_tree "$version_dir/usermods" "$workspace/usermods"
 copy_tree "$version_dir/partitions" "$workspace/tools"
+copy_env_fragment "$shared_dir/platformio.env.ini" "$workspace"
 
 echo "Applied target assets into $workspace"
 if [ -f "$version_dir/notes.md" ]; then

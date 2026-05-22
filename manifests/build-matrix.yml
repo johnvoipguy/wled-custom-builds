@@ -19,17 +19,18 @@ targets:
   - target: seeed-xiao-esp32s3
     display_name: Seeed Xiao ESP32S3
     shared:
+      platformio_env_fragment: targets/seeed-xiao-esp32s3/shared/platformio.env.ini
       usermods: []
       partitions: []
     versions:
       - version: v15
         wled_line: 0.15.x
         platformio_env: seeed_xiao_esp32s3v2
-        notes: Starter slot for salvaging older Xiao-specific work without reviving branch-per-version clones.
+        notes: Version delta — see targets/seeed-xiao-esp32s3/v15/notes.md. Base env defined in shared/platformio.env.ini.
       - version: v16
         wled_line: 16.x / main
         platformio_env: seeed_xiao_esp32s3v2
-        notes: Starter slot for the current Seeed Xiao ESP32S3 mainline work.
+        notes: Version delta — see targets/seeed-xiao-esp32s3/v16/notes.md. Base env defined in shared/platformio.env.ini.
   - target: waveshare-esp32s3-eth
     display_name: Waveshare ESP32S3 Ethernet
     shared:
