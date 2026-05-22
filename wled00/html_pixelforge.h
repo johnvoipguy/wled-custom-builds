@@ -7,7 +7,7 @@
  */
 
 // Automatically generated build time for cache busting (UNIX timestamp)
-#define WEB_BUILD_TIME 1779185649
+#define WEB_BUILD_TIME 1779419424
  
 const uint16_t PAGE_pixelforge_length = 11041;
 const uint8_t PAGE_pixelforge[] PROGMEM = {
