@@ -22,7 +22,8 @@ This repository is a neutral, multi-target home for custom WLED build metadata o
   `v15/` and `v16/` are deltas only. **All Seeed preserved firmware is v16** —
   validated historical binaries live in `targets/seeed-xiao-esp32s3/v16/assets/legacy/`.
 - **Waveshare ESP32-S3-ETH:** W5500 SPI Ethernet support is documented in
-  `targets/waveshare-esp32s3-eth/v15/notes.md`; active migration track.
+  `targets/waveshare-esp32s3-eth/shared/platformio.env.ini` and
+  `targets/waveshare-esp32s3-eth/v15/notes.md`. **v15 is the active Waveshare line**.
 - **SP530E:** salvaged partition CSV and LED status usermods live in
   `targets/sp530e/shared/`.
 
@@ -63,7 +64,12 @@ targets/
           *.bin
   waveshare-esp32s3-eth/
     shared/
-    v15/  v16/
+      platformio.env.ini    ← canonical Waveshare PlatformIO env definition
+    v15/
+      notes.md              ← v15 active-line delta notes
+      assets/
+        README.md           ← no preserved legacy firmware currently tracked
+    v16/                    ← future placeholder only
 platformio.ini              ← generic WLED base (root = upstream defaults, not target-specific)
 ```
 
