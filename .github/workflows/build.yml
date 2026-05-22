@@ -1,6 +1,5 @@
 name: WLED Build
 
-# Only included into other workflows
 on:
   workflow_call:
     inputs:
@@ -8,33 +7,83 @@ on:
         description: 'Build the release env matrix (uses .github/platformio_release.ini.template)'
         type: boolean
         default: false
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  target_matrix:
+    name: Plan Multi-Target Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flatten starter target matrix
+        id: matrix
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('manifests/build-matrix.yml').read_text())
+          include = []
+          for target in manifest['targets']:
+            for version in target['versions']:
+              include.append({
+                'target': target['target'],
+                'display_name': target['display_name'],
+                'version': version['version'],
+                'wled_line': version['wled_line'],
+                'platformio_env': version['platformio_env'],
+              })
+
+          print(f"matrix={json.dumps({'include': include})}")
+          PY
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+  target_plan:
+    name: Plan ${{ matrix.target }} ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    needs: target_matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.target_matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show starter target plan
+        run: |
+          echo "Target: ${{ matrix.display_name }}"
+          echo "Key: ${{ matrix.target }}"
+          echo "Version slot: ${{ matrix.version }}"
+          echo "WLED line: ${{ matrix.wled_line }}"
+          echo "PlatformIO environment: ${{ matrix.platformio_env }}"
+          bash scripts/build-target.sh \
+            --target "${{ matrix.target }}" \
+            --version "${{ matrix.version }}" \
+            --environment "${{ matrix.platformio_env }}" \
+            --plan
 
   get_default_envs:
     name: Gather Environments
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Apply release config
-      if: inputs.release
-      run: cp .github/platformio_release.ini.template platformio_release.ini
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        cache: 'pip'
-    - name: Install PlatformIO
-      run: pip install -r requirements.txt
-    - name: Get default environments
-      id: envs
-      run: |
-        echo "environments=$(pio project config --json-output | jq -cr '.[0][1][0][1]')" >> $GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+      - name: Apply release config
+        if: inputs.release
+        run: cp .github/platformio_release.ini.template platformio_release.ini
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install PlatformIO
+        run: pip install -r requirements.txt
+      - name: Get default environments
+        id: envs
+        run: |
+          echo "environments=$(pio project config --json-output | jq -cr '.[0][1][0][1]')" >> $GITHUB_OUTPUT
     outputs:
       environments: ${{ steps.envs.outputs.environments }}
-
 
   build:
     name: Build Environments
@@ -45,57 +94,54 @@ jobs:
       matrix:
         environment: ${{ fromJSON(needs.get_default_envs.outputs.environments) }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Apply release config
-      if: inputs.release
-      run: cp .github/platformio_release.ini.template platformio_release.ini
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version-file: '.nvmrc'
-        cache: 'npm'
-    - run: |
-        npm ci
-        VERSION=`date +%y%m%d0`
-        sed -i -r -e "s/define VERSION .+/define VERSION $VERSION/" wled00/wled.h
-    - name: Cache PlatformIO
-      uses: actions/cache@v4
-      with:
-        path: |
-              ~/.platformio/.cache
-              ~/.buildcache
-              build_output
-        key: pio-${{ runner.os }}-${{ matrix.environment }}-${{ hashFiles('platformio.ini', '.github/platformio_release.ini.template', 'pio-scripts/output_bins.py') }}-${{ hashFiles('wled00/**', 'usermods/**') }}
-        restore-keys: pio-${{ runner.os }}-${{ matrix.environment }}-${{ hashFiles('platformio.ini', '.github/platformio_release.ini.template', 'pio-scripts/output_bins.py') }}-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
+      - uses: actions/checkout@v4
+      - name: Apply release config
+        if: inputs.release
+        run: cp .github/platformio_release.ini.template platformio_release.ini
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: |
+          npm ci
+          VERSION=`date +%y%m%d0`
+          sed -i -r -e "s/define VERSION .+/define VERSION $VERSION/" wled00/wled.h
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.buildcache
+            build_output
+          key: pio-${{ runner.os }}-${{ matrix.environment }}-${{ hashFiles('platformio.ini', '.github/platformio_release.ini.template', 'pio-scripts/output_bins.py') }}-${{ hashFiles('wled00/**', 'usermods/**') }}
+          restore-keys: pio-${{ runner.os }}-${{ matrix.environment }}-${{ hashFiles('platformio.ini', '.github/platformio_release.ini.template', 'pio-scripts/output_bins.py') }}-
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
           python-version: '3.12'
           cache: 'pip'
-    - name: Install PlatformIO
-      run: pip install -r requirements.txt
-
-    - name: Build firmware
-      run: pio run -e ${{ matrix.environment }}
-    - name: Get artifact name from bin filename
-      id: artifact_name
-      run: |
-        bin=$(ls build_output/release/*.bin 2>/dev/null | head -1)
-        if [ -n "$bin" ]; then
-          # Strip WLED_<version>_ prefix from WLED_<version>_<RELEASE_NAME>.bin
-          base=$(basename "$bin" .bin)
-          release_name=$(echo "$base" | sed 's/^[^_]*_[^_]*_//')
-          echo "name=firmware-$release_name" >> $GITHUB_OUTPUT
-        else
-          echo "name=firmware-${{ matrix.environment }}" >> $GITHUB_OUTPUT
-        fi
-    - uses: actions/upload-artifact@v4
-      with:
-        name: ${{ steps.artifact_name.outputs.name }}
-        path: |
-          build_output/release/*.bin
-          build_output/release/*_ESP02*.bin.gz
-
+      - name: Install PlatformIO
+        run: pip install -r requirements.txt
+      - name: Build firmware
+        run: pio run -e ${{ matrix.environment }}
+      - name: Get artifact name from bin filename
+        id: artifact_name
+        run: |
+          bin=$(ls build_output/release/*.bin 2>/dev/null | head -1)
+          if [ -n "$bin" ]; then
+            base=$(basename "$bin" .bin)
+            release_name=$(echo "$base" | sed 's/^[^_]*_[^_]*_//')
+            echo "name=firmware-$release_name" >> $GITHUB_OUTPUT
+          else
+            echo "name=firmware-${{ matrix.environment }}" >> $GITHUB_OUTPUT
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact_name.outputs.name }}
+          path: |
+            build_output/release/*.bin
+            build_output/release/*_ESP02*.bin.gz
 
   testCdata:
     name: Test cdata.js
