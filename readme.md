@@ -2,6 +2,12 @@
 
 This repository is being restructured into a neutral, multi-target home for custom WLED build metadata on top of `main`.
 
+## Target highlights
+
+- **Waveshare ESP32-S3-ETH:** legacy custom W5500 SPI Ethernet support is documented in `targets/waveshare-esp32s3-eth/v15/notes.md` (documentation only in this repository so far; no port in this PR).
+- **SP530E salvage:** `targets/sp530e/` currently carries the salvaged partition CSV and LED status usermods.
+- **Seeed Xiao ESP32S3:** current build notes/status live under `targets/seeed-xiao-esp32s3/`.
+
 ## Repository direction
 
 - `main` is the canonical branch.
