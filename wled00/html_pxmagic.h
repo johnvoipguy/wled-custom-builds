@@ -7,7 +7,7 @@
  */
 
 // Automatically generated build time for cache busting (UNIX timestamp)
-#define WEB_BUILD_TIME 1779429949
+#define WEB_BUILD_TIME 1779434505
  
 const uint16_t PAGE_pxmagic_length = 8701;
 const uint8_t PAGE_pxmagic[] PROGMEM = {
