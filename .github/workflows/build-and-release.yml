@@ -1,173 +1,144 @@
 name: Build and Release seeed_xiao_esp32s3v2
+
 on:
   push:
-    branches: [ seeed-xiao-16.0.0 ]
+    branches: [seeed-xiao-16.0.0]
     paths:
       - 'platformio.ini'
+      - 'platformio_release.ini'
       - 'wled00/**'
       - 'usermods/**'
       - 'lib/**'
       - 'include/**'
       - 'tools/**'
+      - 'scripts/**'
+      - 'targets/**'
       - '.github/workflows/build-and-release.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+    env:
+      TARGET_NAME: seeed-xiao-esp32s3
+      TARGET_VERSION: v16
+      PIO_ENV: seeed_xiao_esp32s3v2
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.PAT_TOKEN }}
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Install PlatformIO and esptool
-      run: |
-        python -m pip install --upgrade pip
-        pip install --upgrade platformio esptool
-        
-    - name: Install Node.js dependencies
-      run: npm ci
-      
-    - name: Build seeed-xiao firmware
-      run: |
-        echo "🔨 Building seeed-xiao firmware..."
-        echo "Available environments:"
-        pio project config --json-output | grep -E "env:|seeed_xiao_esp32s3v2"
-        echo "Building only seeed_xiao_esp32s3 environment:"
-        pio run -e seeed_xiao_esp32s3v2 --verbose
-        echo "Build completed. Checking what was built:"
-        ls -la .pio/build/seeed_xiao_esp32s3v2
-        
-    - name: Prepare user-friendly binaries
-      run: |
-        BUILD_DIR=".pio/build/seeed_xiao_esp32s3v2"
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        
-        # Create builds directories
-        mkdir -p builds/latest
-        mkdir -p "builds/build_${TIMESTAMP}"
-        
-        echo "📦 Creating user-friendly firmware packages..."
-        
-        # Check what was built
-        echo "Build directory contents:"
-        ls -la "${BUILD_DIR}/" || echo "❌ Build failed - no output directory"
-        
-        if [ -d "${BUILD_DIR}" ]; then
-          # 1. Full firmware (bootloader + partitions + app merged)
-          if [ -f "${BUILD_DIR}/firmware.bin" ]; then
-            echo "✅ Found firmware.bin"
-            
-            # Try to create merged firmware
-            if [ -f "${BUILD_DIR}/bootloader.bin" ] && [ -f "${BUILD_DIR}/partitions.bin" ]; then
-              echo "🔗 Creating merged firmware..."
-              python -m esptool --chip esp32s3 merge-bin -o "builds/latest/WLED_seeed_xiao_esp32s3v2_Full_Latest.bin" \
-                --flash-mode qiom --flash-size 8MB \
-                0x0000 "${BUILD_DIR}/bootloader.bin" \
-                0x8000 "${BUILD_DIR}/partitions.bin" \
-                0x10000 "${BUILD_DIR}/firmware.bin"
-            else
-              echo "⚠️ Using firmware.bin as full image"
-              cp "${BUILD_DIR}/firmware.bin" "builds/latest/WLED_seeed_xiao_esp32s3v2_Full_Latest.bin"
-            fi
-            
-            # 2. App-only for OTA
-            cp "${BUILD_DIR}/firmware.bin" "builds/latest/WLED_seeed_xiao_esp32s3v2_App_Latest.bin"
-            
-            # 3. Individual components
-            [ -f "${BUILD_DIR}/bootloader.bin" ] && cp "${BUILD_DIR}/bootloader.bin" "builds/latest/Bootloader.bin"
-            [ -f "${BUILD_DIR}/partitions.bin" ] && cp "${BUILD_DIR}/partitions.bin" "builds/latest/Partitions.bin"
-            cp "${BUILD_DIR}/firmware.bin" "builds/latest/App.bin"
-            
-            # 4. Timestamped backup
-            cp -r builds/latest/* "builds/build_${TIMESTAMP}/"
-            
-            echo "✅ Created firmware packages:"
-            ls -lh builds/latest/
-            
-            # 5. Update build info
-            echo "seeed_xiao_esp32s3v2 WLED Firmware Build" > "builds/latest/BUILD_INFO.txt"
-            echo "==========================" >> "builds/latest/BUILD_INFO.txt"
-            echo "Built: $(date)" >> "builds/latest/BUILD_INFO.txt"
-            echo "Commit: ${GITHUB_SHA}" >> "builds/latest/BUILD_INFO.txt"
-            echo "Branch: ${GITHUB_REF_NAME}" >> "builds/latest/BUILD_INFO.txt"
-            echo "" >> "builds/latest/BUILD_INFO.txt"
-            echo "FILES:" >> "builds/latest/BUILD_INFO.txt"
-            ls -lh builds/latest/ >> "builds/latest/BUILD_INFO.txt"
-            echo "" >> "builds/latest/BUILD_INFO.txt"
-            echo "FLASHING INSTRUCTIONS:" >> "builds/latest/BUILD_INFO.txt"
-            echo "======================" >> "builds/latest/BUILD_INFO.txt"
-            echo "" >> "builds/latest/BUILD_INFO.txt"
-            echo "🔌 UART Flashing (First Time Setup):" >> "builds/latest/BUILD_INFO.txt"
-            echo "esptool.py --chip esp32s3 write-flash 0x0000 WLED_seeed_xiao_esp32s3v2_Full_Latest.bin" >> "builds/latest/BUILD_INFO.txt"
-            echo "" >> "builds/latest/BUILD_INFO.txt"
-            echo "📦 PlatformIO Flashing:" >> "builds/latest/BUILD_INFO.txt"
-            echo "pio run -e seeed_xiao_esp32s3v2 -t upload" >> "builds/latest/BUILD_INFO.txt"
-            echo "" >> "builds/latest/BUILD_INFO.txt"
-            echo "🔄 OTA Updates (Existing Installation):" >> "builds/latest/BUILD_INFO.txt"
-            echo "- Upload WLED_seeed_xiao_esp32s3v2_App_Latest.bin via WLED web interface" >> "builds/latest/BUILD_INFO.txt"
-            echo "- Go to Settings → Security & Updates → Manual OTA" >> "builds/latest/BUILD_INFO.txt"
-          
-          else
-            echo "❌ No firmware.bin found in build directory"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install PlatformIO and esptool
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio esptool
+
+      - name: Build target firmware
+        id: build_target
+        run: |
+          scripts/build-target.sh \
+            --target "$TARGET_NAME" \
+            --version "$TARGET_VERSION" \
+            --environment "$PIO_ENV" \
+            --keep-workspace
+
+      - name: Prepare firmware packages
+        id: package
+        env:
+          BUILD_WORKSPACE: ${{ steps.build_target.outputs.workspace }}
+        run: |
+          set -euo pipefail
+
+          BUILD_DIR="$BUILD_WORKSPACE/.pio/build/$PIO_ENV"
+          OUT_DIR="$RUNNER_TEMP/release-assets"
+
+          mkdir -p "$OUT_DIR"
+
+          echo "📦 Packaging binaries from: $BUILD_DIR"
+          ls -la "$BUILD_DIR"
+
+          if [ ! -f "$BUILD_DIR/firmware.bin" ]; then
+            echo "❌ firmware.bin was not produced"
+            exit 1
           fi
-        fi
-        
-    - name: Commit binaries to repository
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add builds/
-        
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-        else
-          git commit -m "Auto-update seeed_xiao_esp32s3v2 binaries [skip ci]"
-          git push
-          echo "✅ Binaries updated in repository!"
-        fi
 
-    - name: Create GitHub Release
-      if: github.ref == 'refs/heads/seeed-xiao-16.0.0'
-      run: |
-        # Create release tag and GitHub release
-        RELEASE_TAG="seeed_xiao_esp32s3v2-v$(date +%Y%m%d-%H%M%S)"
-        RELEASE_NAME="seeed_xiao_esp32s3v2E WLED Firmware - $(date +'%Y-%m-%d %H:%M')"
-        
-        echo "Creating release: $RELEASE_TAG"
-        
-        # Create release with binaries
-        gh release create "$RELEASE_TAG" \
-          "builds/latest/WLED_seeed_xiao_esp32s3v2_Full_Latest.bin#seeed_xiao_esp32s3v2 Full Firmware (UART Flash)" \
-          "builds/latest/WLED_seeed_xiao_esp32s3v2_App_Latest.bin#seeed_xiao_esp32s3v2 App Only (OTA Update)" \
-          "builds/latest/BUILD_INFO.txt#Build Information & Instructions" \
-          --title "$RELEASE_NAME" \
-          --notes "**seeed_xiao_esp32s3v2 WLED Firmware Build**
+          FULL_BIN="$OUT_DIR/WLED_${PIO_ENV}_Full_Latest.bin"
+          APP_BIN="$OUT_DIR/WLED_${PIO_ENV}_App_Latest.bin"
+          BUILD_INFO="$OUT_DIR/BUILD_INFO.txt"
 
-        🎯 **Optimized for seeed_xiao_esp32s3v2 Controllers** - ESP32-S3 with audio reactive support
+          if [ -f "$BUILD_DIR/bootloader.bin" ] && [ -f "$BUILD_DIR/partitions.bin" ]; then
+            python -m esptool --chip esp32s3 merge-bin -o "$FULL_BIN" \
+              --flash-mode qio --flash-size 8MB \
+              0x0000 "$BUILD_DIR/bootloader.bin" \
+              0x8000 "$BUILD_DIR/partitions.bin" \
+              0x10000 "$BUILD_DIR/firmware.bin"
+          else
+            cp "$BUILD_DIR/firmware.bin" "$FULL_BIN"
+          fi
 
-        ## 📦 Files Included:
-        - **WLED_seeed_xiao_esp32s3v2_Full_Latest.bin** - Complete firmware for UART flashing (1.6MB)
-        - **WLED_seeed_xiao_esp32s3v2_App_Latest.bin** - App-only for OTA updates (1.6MB)  
-        - **BUILD_INFO.txt** - Detailed flashing instructions
+          cp "$BUILD_DIR/firmware.bin" "$APP_BIN"
+          [ -f "$BUILD_DIR/bootloader.bin" ] && cp "$BUILD_DIR/bootloader.bin" "$OUT_DIR/Bootloader.bin"
+          [ -f "$BUILD_DIR/partitions.bin" ] && cp "$BUILD_DIR/partitions.bin" "$OUT_DIR/Partitions.bin"
+          cp "$BUILD_DIR/firmware.bin" "$OUT_DIR/App.bin"
 
-        ## 🔌 Quick Flash:
-        \`\`\`bash
-        esptool.py --chip esp32s3 --write-flash 0x0000 WLED_seeed_xiao_esp32s3v2_Full_Latest.bin
-        \`\`\`
+          {
+            echo "$PIO_ENV WLED Firmware Build"
+            echo "=========================="
+            echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Branch: ${GITHUB_REF_NAME}"
+            echo ""
+            echo "FILES:"
+            ls -lh "$OUT_DIR"
+            echo ""
+            echo "FLASHING INSTRUCTIONS:"
+            echo "======================"
+            echo ""
+            echo "UART Flashing (first install):"
+            echo "esptool.py --chip esp32s3 write-flash 0x0000 WLED_${PIO_ENV}_Full_Latest.bin"
+            echo ""
+            echo "OTA update:"
+            echo "- Upload WLED_${PIO_ENV}_App_Latest.bin via WLED web interface"
+            echo "- Settings > Security & Updates > Manual OTA"
+          } > "$BUILD_INFO"
 
-        ## 🔄 OTA Update:
-        Upload **WLED_seeed_xiao_esp32s3v2_App_Latest.bin** via WLED web interface
+          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
 
-        **Built from commit:** ${GITHUB_SHA:0:7}
-        **Build time:** $(date)" \
-          --latest
-      env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PIO_ENV }}-firmware
+          path: ${{ steps.package.outputs.out_dir }}/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/seeed-xiao-16.0.0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG="${PIO_ENV}-v$(date +%Y%m%d-%H%M%S)"
+          RELEASE_NAME="${PIO_ENV} WLED Firmware - $(date +'%Y-%m-%d %H:%M')"
+          OUT_DIR="${{ steps.package.outputs.out_dir }}"
+
+          gh release create "$RELEASE_TAG" \
+            "$OUT_DIR/WLED_${PIO_ENV}_Full_Latest.bin#${PIO_ENV} Full Firmware (UART Flash)" \
+            "$OUT_DIR/WLED_${PIO_ENV}_App_Latest.bin#${PIO_ENV} App Only (OTA Update)" \
+            "$OUT_DIR/BUILD_INFO.txt#Build Information" \
+            --title "$RELEASE_NAME" \
+            --notes "Built from commit ${GITHUB_SHA:0:7}." \
+            --latest
