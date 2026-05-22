@@ -2,8 +2,8 @@ name: WLED CI
 
 on:
   push:
-    branches-ignore:
-      - main
+    branches:
+      - '**'
   pull_request:
 
 jobs:

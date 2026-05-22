@@ -24,7 +24,7 @@ targets:
     versions:
       - version: v15
         wled_line: 0.15.x
-        platformio_env: seeed_xiao_esp32s3
+        platformio_env: seeed_xiao_esp32s3v2
         notes: Starter slot for salvaging older Xiao-specific work without reviving branch-per-version clones.
       - version: v16
         wled_line: 16.x / main
