@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: wled_build
     steps:
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v4.1.3
       with:
         merge-multiple: true
     - name: Create draft release
@@ -45,4 +45,3 @@ jobs:
       with:
         body: ${{ steps.changelog.outputs.changelog }}
         draft: True
-

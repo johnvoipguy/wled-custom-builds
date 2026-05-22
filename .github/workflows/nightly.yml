@@ -19,7 +19,7 @@ jobs:
     needs: wled_build
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.1.3
         with:
           merge-multiple: true
       - name: Show Files
