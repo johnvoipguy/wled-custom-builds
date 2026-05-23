@@ -1,0 +1,4 @@
+{
+  "environment": "waveshare_esp32s3_eth",
+  "wled_ref": "v16.0.0"
+}
