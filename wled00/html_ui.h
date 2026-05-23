@@ -7,7 +7,7 @@
  */
 
 // Automatically generated build time for cache busting (UNIX timestamp)
-#define WEB_BUILD_TIME 1779504256
+#define WEB_BUILD_TIME 1779504630
  
 const uint16_t PAGE_index_length = 39668;
 const uint8_t PAGE_index[] PROGMEM = {
