@@ -103,7 +103,9 @@ jobs:
         if: always()
         run: |
           if ! git diff --quiet -- wled00/html_*.h wled00/js_*.h; then
-            echo "Generated headers changed in repository checkout. build-target flow must not mutate tracked header outputs."
+            echo "Generated header files changed in the checkout (wled00/html_*.h or wled00/js_*.h)."
+            echo "These are auto-generated web UI outputs and must not be mutated by build-target flow changes."
+            echo "Update web UI sources under wled00/data and run the dedicated web build flow when regeneration is intentional."
             git --no-pager diff -- wled00/html_*.h wled00/js_*.h
             exit 1
           fi

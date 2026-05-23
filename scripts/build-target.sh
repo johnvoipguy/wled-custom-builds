@@ -157,17 +157,22 @@ if [ -z "$workspace" ]; then
 fi
 
 mkdir -p "$workspace"
-find "$workspace" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+shopt -s dotglob nullglob
+workspace_entries=("$workspace"/*)
+if [ "${#workspace_entries[@]}" -gt 0 ]; then
+  rm -rf "${workspace_entries[@]}"
+fi
+shopt -u dotglob nullglob
 
 if [ -d "$repo_root/wled_bases/$wled_ref" ]; then
   base_source=local
   cp -a "$repo_root/wled_bases/$wled_ref/." "$workspace/"
 else
   base_source=upstream
-  git -C "$workspace" init
-  git -C "$workspace" remote add origin "$wled_repo"
-  git -C "$workspace" fetch --depth 1 origin "$wled_ref"
-  git -C "$workspace" checkout --detach FETCH_HEAD
+  git -C "$workspace" init || die "failed to initialize workspace git repository at $workspace"
+  git -C "$workspace" remote add origin "$wled_repo" || die "failed to add remote '$wled_repo' in workspace $workspace"
+  git -C "$workspace" fetch --depth 1 origin "$wled_ref" || die "failed to fetch WLED ref '$wled_ref' from '$wled_repo'"
+  git -C "$workspace" checkout --detach FETCH_HEAD || die "failed to checkout fetched WLED ref '$wled_ref'"
 fi
 
 [ -d "$workspace/wled00" ] || die "workspace '$workspace' does not look like a WLED checkout after base setup"
