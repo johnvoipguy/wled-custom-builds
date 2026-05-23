@@ -321,13 +321,17 @@ merge_full_image_for_env() {
   bootloader_offset=$(bootloader_offset_for_chip "$chip")
 
   # Locate esptool (prefer executable form). Resolution order:
-  #  1) PlatformIO tool package: ~/.platformio/packages/tool-esptoolpy/esptool
-  #  2) esptool on PATH
-  #  3) python3 -m esptool
+  #  1) PlatformIO tool package executable: ~/.platformio/packages/tool-esptoolpy/esptool
+  #  2) PlatformIO tool package directory: ~/.platformio/packages/tool-esptoolpy/esptool/esptool.py
+  #  3) esptool on PATH
+  #  4) python3 -m esptool
   local esptool_cmd=()
   local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
+
   if [ -x "$pio_home/packages/tool-esptoolpy/esptool" ]; then
     esptool_cmd=("$pio_home/packages/tool-esptoolpy/esptool")
+  elif [ -f "$pio_home/packages/tool-esptoolpy/esptool/esptool.py" ]; then
+    esptool_cmd=(python3 "$pio_home/packages/tool-esptoolpy/esptool/esptool.py")
   elif command -v esptool >/dev/null 2>&1; then
     esptool_cmd=(esptool)
   elif python3 -m esptool version >/dev/null 2>&1; then
