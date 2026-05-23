@@ -118,6 +118,14 @@ jobs:
           path: ${{ steps.build.outputs.log_dir }}
           if-no-files-found: error
 
+      - name: Upload build outputs artifact
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: outputs-${{ env.TARGET }}-${{ env.VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.build.outputs.output_dir }}
+          if-no-files-found: error
+
       - name: Package firmware artifacts
         id: package
         if: github.event_name != 'pull_request'
