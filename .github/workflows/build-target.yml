@@ -57,6 +57,7 @@ jobs:
       VERSION: ${{ github.event.inputs.version || 'v16' }}
       REQUESTED_ENV: ${{ github.event.inputs.environment || '' }}
       RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag || '' }}
+      EVENT_NAME: ${{ github.event_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,10 +94,14 @@ jobs:
           if [ -n "$REQUESTED_ENV" ]; then
             build_args+=(--environment "$REQUESTED_ENV")
           fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            build_args+=(--plan)
+          fi
           bash scripts/build-target.sh "${build_args[@]}"
 
       - name: Package firmware artifacts
         id: package
+        if: github.event_name != 'pull_request'
         run: |
           workspace="${{ steps.build.outputs.workspace }}"
           environment="${{ steps.build.outputs.environment }}"
@@ -145,6 +150,7 @@ jobs:
           printf 'release_files<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${release_files[@]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.artifact_name }}
