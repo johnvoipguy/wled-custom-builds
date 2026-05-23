@@ -79,6 +79,23 @@ for e in envs:
 PY
 }
 
+human_size_bytes() {
+  local bytes=${1:-0}
+  python - "$bytes" <<'PY'
+import sys
+
+size = int(sys.argv[1])
+units = ["B", "KB", "MB", "GB"]
+value = float(size)
+unit = units[0]
+for unit in units:
+  if value < 1024 or unit == units[-1]:
+    break
+  value /= 1024
+print(f"{value:.2f} {unit}" if unit != "B" else f"{int(value)} {unit}")
+PY
+}
+
 target=
 version=
 environment=
@@ -99,9 +116,12 @@ multi_env=false
 log_dir=
 apply_log=
 build_log=
+run_log=
+summary_log=
 meta_json=
 repo_sha=
 timestamp_utc=
+output_dir=
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -155,10 +175,14 @@ repo_root=$(cd "$script_dir/.." && pwd)
 version_manifest_path="$repo_root/targets/$target/$version/build.json"
 fallback_manifest_path="$repo_root/targets/$target/shared/build.default.json"
 default_wled_repo="https://github.com/Aircoookie/WLED.git"
-timestamp_utc=$(date -u +%Y%m%d-%H%M)
+timestamp_utc=$(date -u +%Y%m%d-%H%M%S)
 log_dir="$repo_root/logs/$target/$version/$timestamp_utc"
-apply_log="$log_dir/apply.log"
+run_log="$log_dir/run.log"
+apply_log="$run_log"
+build_log="$run_log"
+summary_log="$log_dir/summary.txt"
 meta_json="$log_dir/meta.json"
+output_dir="$repo_root/outputs/$target/$version/$timestamp_utc"
 repo_sha=$(git -C "$repo_root" rev-parse HEAD)
 
 # Determine version mode: overlay (version dir exists) or WLED-ref (version dir absent)
@@ -169,6 +193,57 @@ else
 fi
 
 mkdir -p "$log_dir"
+mkdir -p "$output_dir"
+
+declare -a copied_artifacts=()
+declare -A copied_artifact_seen=()
+
+copy_artifact_file() {
+  local source_file=$1
+  local destination_dir=$2
+  [ -f "$source_file" ] || return 1
+
+  mkdir -p "$destination_dir"
+  local destination_file="$destination_dir/$(basename "$source_file")"
+  cp -f "$source_file" "$destination_file"
+
+  local rel_path="${destination_file#"$output_dir"/}"
+  if [ -z "${copied_artifact_seen[$rel_path]+x}" ]; then
+    local size_bytes
+    size_bytes=$(wc -c < "$destination_file" | tr -d '[:space:]')
+    copied_artifacts+=("$rel_path|$size_bytes")
+    copied_artifact_seen["$rel_path"]=1
+  fi
+  return 0
+}
+
+copy_artifacts_for_env() {
+  local env_name=$1
+  local env_build_dir="$workspace/.pio/build/$env_name"
+  local env_output_dir="$output_dir/$env_name"
+  local release_output_dir="$output_dir/release"
+
+  shopt -s nullglob
+  local release_bins=("$workspace/build_output/release/"*.bin)
+  local optional_bins=("$env_build_dir/"*.bin)
+  local optional_uf2=("$env_build_dir/"*.uf2)
+  shopt -u nullglob
+
+  for file in "${release_bins[@]}"; do
+    copy_artifact_file "$file" "$release_output_dir" || true
+  done
+
+  copy_artifact_file "$env_build_dir/firmware.bin" "$env_output_dir" || true
+  copy_artifact_file "$env_build_dir/firmware.elf" "$env_output_dir" || true
+  copy_artifact_file "$env_build_dir/firmware.map" "$env_output_dir" || true
+
+  for file in "${optional_bins[@]}"; do
+    copy_artifact_file "$file" "$env_output_dir" || true
+  done
+  for file in "${optional_uf2[@]}"; do
+    copy_artifact_file "$file" "$env_output_dir" || true
+  done
+}
 
 # Manifest resolution
 if [ "$version_is_overlay" = true ]; then
@@ -307,22 +382,25 @@ set_github_output "wled_ref" "$wled_ref"
 set_github_output "wled_repo" "$wled_repo"
 set_github_output "base_source" "$base_source"
 set_github_output "log_dir" "$log_dir"
+set_github_output "run_log" "$run_log"
 set_github_output "apply_log" "$apply_log"
 set_github_output "build_log" "$build_log"
+set_github_output "summary_log" "$summary_log"
 set_github_output "meta_json" "$meta_json"
+set_github_output "output_dir" "$output_dir"
 set_github_output "manifest_path" "$manifest_path"
 set_github_output "manifest_fallback" "$manifest_fallback"
 
 envs_joined=$(printf '%s,' "${resolved_envs[@]}")
 envs_joined=${envs_joined%,}
 
-python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" <<'PY'
+python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" "$run_log" "$summary_log" "$output_dir" <<'PY'
 import json
 import sys
 
 (meta_path, target, tgt_version, wled_ref, base_source, environment,
  repo_sha, timestamp, wled_repo, manifest_path, manifest_fallback,
- version_is_overlay, envs_joined) = sys.argv[1:]
+ version_is_overlay, envs_joined, run_log, summary_log, output_dir) = sys.argv[1:]
 environments = [e for e in envs_joined.split(',') if e]
 payload = {
   "target": target,
@@ -338,6 +416,10 @@ payload = {
   "wled_repo": wled_repo,
   "manifest_path": manifest_path,
   "manifest_fallback": manifest_fallback.lower() == "true",
+  "log_dir": run_log.rsplit("/", 1)[0],
+  "run_log": run_log,
+  "summary_log": summary_log,
+  "output_dir": output_dir,
 }
 with open(meta_path, "w", encoding="utf-8") as fp:
   json.dump(payload, fp, indent=2)
@@ -354,39 +436,75 @@ fi
 printf '\n'
 printf 'Workspace: %s\n' "$workspace"
 
-set +e
-"$script_dir/apply-target.sh" "${apply_args[@]}" 2>&1 | tee "$apply_log"
-apply_status=${PIPESTATUS[0]}
-set -e
-[ "$apply_status" -eq 0 ] || exit "$apply_status"
+exec > >(tee -a "$run_log") 2>&1
+
+echo "==== WLED custom build run ===="
+echo "Target: $target"
+echo "Version: $version"
+echo "Version mode: $( [ "$version_is_overlay" = true ] && echo "overlay" || echo "wled-ref" )"
+echo "WLED ref: $wled_ref"
+echo "WLED source: $base_source ($wled_repo)"
+echo "Workspace: $workspace"
+echo "Log directory: $log_dir"
+echo "Run log: $run_log"
+echo "Output directory: $output_dir"
+echo
+
+"$script_dir/apply-target.sh" "${apply_args[@]}"
 
 if [ "$plan_only" = true ]; then
-  {
-    for _env in "${resolved_envs[@]}"; do
-      echo "Plan only: would run 'npm ci', 'npm run build', and 'pio run -e $_env' in $workspace"
-    done
-  } | tee "$build_log"
+  for _env in "${resolved_envs[@]}"; do
+    echo "Plan only: would run 'npm ci', 'npm run build', and 'pio run -e $_env' in $workspace"
+  done
   exit 0
 fi
 
-set +e
 (
   cd "$workspace"
   npm ci
   npm run build
-) 2>&1 | tee "$log_dir/npm.log"
-npm_status=${PIPESTATUS[0]}
-set -e
-[ "$npm_status" -eq 0 ] || exit "$npm_status"
+)
 
 for _env in "${resolved_envs[@]}"; do
-  _build_log="$log_dir/build.${_env}.log"
-  set +e
   (
     cd "$workspace"
     pio run -e "$_env"
-  ) 2>&1 | tee "$_build_log"
-  _build_status=${PIPESTATUS[0]}
-  set -e
-  [ "$_build_status" -eq 0 ] || exit "$_build_status"
+  )
+  copy_artifacts_for_env "$_env"
 done
+
+{
+  echo "Build summary"
+  echo "============="
+  echo "target: $target"
+  echo "version: $version"
+  echo "version_mode: $( [ "$version_is_overlay" = true ] && echo "overlay" || echo "wled-ref" )"
+  echo "wled_ref: $wled_ref"
+  echo "base_source: $base_source"
+  echo "wled_repo: $wled_repo"
+  echo "environments: ${resolved_envs[*]}"
+  echo "log_dir: $log_dir"
+  echo "run_log: $run_log"
+  echo "meta_json: $meta_json"
+  echo "output_dir: $output_dir"
+  echo "artifacts:"
+  if [ "${#copied_artifacts[@]}" -eq 0 ]; then
+    echo "  - (none copied)"
+  else
+    for artifact_entry in "${copied_artifacts[@]}"; do
+      artifact_file=${artifact_entry%%|*}
+      artifact_size=${artifact_entry##*|}
+      echo "  - $artifact_file ($(human_size_bytes "$artifact_size"), $artifact_size bytes)"
+    done
+  fi
+} | tee "$summary_log"
+
+latest_dir="$repo_root/logs/$target/$version/latest"
+rm -rf "$latest_dir"
+mkdir -p "$latest_dir"
+cp -a "$log_dir/." "$latest_dir/"
+
+echo
+echo "Build outputs saved to: $output_dir"
+echo "Latest logs copied to: $latest_dir"
+echo "Run complete."
