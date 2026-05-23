@@ -5,11 +5,20 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/build-target.sh --target <target> --version <version> [--environment <pio-env>] [--wled-ref <ref>] [--wled-repo <repo-url>] [--workspace <path>] [--plan]
 
-By default this reads targets/<target>/<version>/build.json and falls back to
-targets/<target>/shared/build.default.json when version-specific manifest is missing.
-It prepares a temporary workspace under /tmp from a local wled_bases/<wled_ref>/
-checkout when available (or clones upstream), applies target assets, and prints
-or runs the standard WLED build commands.
+Version semantics:
+  - If targets/<target>/<version>/ exists, <version> is treated as an overlay version key.
+    Manifest resolution: targets/<target>/<version>/build.json -> targets/<target>/shared/build.default.json.
+  - If targets/<target>/<version>/ does NOT exist, <version> is treated as the WLED ref (branch/tag).
+    Only targets/<target>/shared/ assets are applied. Manifest: targets/<target>/shared/build.default.json (optional).
+
+Environment resolution order (first non-empty wins):
+  1. --environment CLI flag
+  2. 'environment' field in manifest
+  3. [env:<name>] sections in targets/<target>/shared/platformio.env.ini
+     - Exactly one env found: use it automatically.
+     - Multiple envs found: build all (local only). CI disallows multi-env without explicit selection.
+
+Pass --environment or set 'environment' in the manifest to force a single environment.
 USAGE
 }
 
@@ -47,6 +56,25 @@ set_github_output() {
   fi
 }
 
+is_ci() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ]
+}
+
+parse_envs_from_ini() {
+  local ini_file=$1
+  python - "$ini_file" <<'PY'
+import re
+import sys
+
+ini_file = sys.argv[1]
+with open(ini_file, encoding="utf-8") as fp:
+  content = fp.read()
+envs = re.findall(r'^\[env:([^\]]+)\]', content, re.MULTILINE)
+for e in envs:
+  print(e)
+PY
+}
+
 target=
 version=
 environment=
@@ -62,6 +90,8 @@ manifest_path=
 version_manifest_path=
 fallback_manifest_path=
 manifest_fallback=false
+version_is_overlay=
+multi_env=false
 log_dir=
 apply_log=
 build_log=
@@ -124,33 +154,91 @@ default_wled_repo="https://github.com/Aircoookie/WLED.git"
 timestamp_utc=$(date -u +%Y%m%d-%H%M)
 log_dir="$repo_root/logs/$target/$version/$timestamp_utc"
 apply_log="$log_dir/apply.log"
-build_log="$log_dir/build.log"
 meta_json="$log_dir/meta.json"
 repo_sha=$(git -C "$repo_root" rev-parse HEAD)
 
+# Determine version mode: overlay (version dir exists) or WLED-ref (version dir absent)
+if [ -d "$repo_root/targets/$target/$version" ]; then
+  version_is_overlay=true
+else
+  version_is_overlay=false
+fi
+
 mkdir -p "$log_dir"
 
-if [ -f "$version_manifest_path" ]; then
-  manifest_path="$version_manifest_path"
-elif [ -f "$fallback_manifest_path" ]; then
-  manifest_path="$fallback_manifest_path"
-  manifest_fallback=true
+# Manifest resolution
+if [ "$version_is_overlay" = true ]; then
+  if [ -f "$version_manifest_path" ]; then
+    manifest_path="$version_manifest_path"
+  elif [ -f "$fallback_manifest_path" ]; then
+    manifest_path="$fallback_manifest_path"
+    manifest_fallback=true
+  else
+    die "missing manifest: $version_manifest_path (fallback also missing: $fallback_manifest_path)"
+  fi
 else
-  die "missing manifest: $version_manifest_path (fallback also missing: $fallback_manifest_path)"
+  # WLED-ref mode: version directory does not exist; use shared default manifest if available
+  if [ -f "$fallback_manifest_path" ]; then
+    manifest_path="$fallback_manifest_path"
+  fi
+  # manifest_path may remain empty in WLED-ref mode; env and wled_ref are inferred below
 fi
 
-if [ -z "$environment" ]; then
-  environment=$(json_get_value "$manifest_path" "environment")
+# Environment resolution: CLI flag -> manifest -> shared env fragment
+resolved_envs=()
+if [ -n "$environment" ]; then
+  resolved_envs=("$environment")
+else
+  _env_from_manifest=
+  if [ -n "$manifest_path" ]; then
+    _env_from_manifest=$(json_get_value "$manifest_path" "environment")
+  fi
+  if [ -n "$_env_from_manifest" ]; then
+    resolved_envs=("$_env_from_manifest")
+  else
+    _shared_ini="$repo_root/targets/$target/shared/platformio.env.ini"
+    _parsed_envs=()
+    if [ -f "$_shared_ini" ]; then
+      mapfile -t _parsed_envs < <(parse_envs_from_ini "$_shared_ini")
+    fi
+    if [ "${#_parsed_envs[@]}" -eq 1 ]; then
+      resolved_envs=("${_parsed_envs[0]}")
+    elif [ "${#_parsed_envs[@]}" -gt 1 ]; then
+      if is_ci; then
+        die "Multiple environments found in $_shared_ini (${_parsed_envs[*]}) but no single environment specified. CI requires a single environment. Pass --environment or set 'environment' in the manifest."
+      else
+        resolved_envs=("${_parsed_envs[@]}")
+      fi
+    fi
+  fi
 fi
-[ -n "$environment" ] || die "manifest '$manifest_path' must define non-empty 'environment' (or pass --environment)"
+[ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment. Pass --environment or set 'environment' in the manifest or shared/platformio.env.ini."
 
+environment=${resolved_envs[0]}
+if [ "${#resolved_envs[@]}" -gt 1 ]; then
+  multi_env=true
+fi
+
+# build_log points to first (or only) env log; per-env logs written as build.<env>.log
+build_log="$log_dir/build.${environment}.log"
+
+# wled_ref resolution: CLI flag -> version (WLED-ref mode) or manifest (overlay mode)
 if [ -z "$wled_ref" ]; then
-  wled_ref=$(json_get_value "$manifest_path" "wled_ref")
+  if [ "$version_is_overlay" = false ]; then
+    # WLED-ref mode: version argument IS the WLED ref
+    wled_ref=$version
+  elif [ -n "$manifest_path" ]; then
+    # Overlay mode: read wled_ref from manifest
+    wled_ref=$(json_get_value "$manifest_path" "wled_ref")
+  fi
 fi
 [ -n "$wled_ref" ] || die "manifest '$manifest_path' must define non-empty 'wled_ref' (or pass --wled-ref)"
 
+# wled_repo resolution: CLI flag -> manifest -> default
 if [ -z "$wled_repo" ]; then
-  wled_repo=$(json_get_value "$manifest_path" "wled_repo")
+  if [ -n "$manifest_path" ]; then
+    wled_repo=$(json_get_value "$manifest_path" "wled_repo")
+  fi
 fi
 if [ -z "$wled_repo" ]; then
   wled_repo=$default_wled_repo
@@ -196,6 +284,10 @@ apply_args=(
   --workspace "$workspace"
 )
 
+if [ "$version_is_overlay" = false ]; then
+  apply_args+=(--no-version-overlay)
+fi
+
 if [ "$plan_only" = true ]; then
   apply_args+=(--plan)
 fi
@@ -204,7 +296,9 @@ set_github_output "target" "$target"
 set_github_output "version" "$version"
 set_github_output "environment" "$environment"
 set_github_output "workspace" "$workspace"
-set_github_output "build_dir" "$workspace/.pio/build/$environment"
+if [ "$multi_env" = false ]; then
+  set_github_output "build_dir" "$workspace/.pio/build/$environment"
+fi
 set_github_output "wled_ref" "$wled_ref"
 set_github_output "wled_repo" "$wled_repo"
 set_github_output "base_source" "$base_source"
@@ -215,17 +309,26 @@ set_github_output "meta_json" "$meta_json"
 set_github_output "manifest_path" "$manifest_path"
 set_github_output "manifest_fallback" "$manifest_fallback"
 
-python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" <<'PY'
+envs_joined=$(printf '%s,' "${resolved_envs[@]}")
+envs_joined=${envs_joined%,}
+
+python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" <<'PY'
 import json
 import sys
 
-meta_path, target, tgt_version, wled_ref, base_source, environment, repo_sha, timestamp, wled_repo, manifest_path, manifest_fallback = sys.argv[1:]
+(meta_path, target, tgt_version, wled_ref, base_source, environment,
+ repo_sha, timestamp, wled_repo, manifest_path, manifest_fallback,
+ version_is_overlay, envs_joined) = sys.argv[1:]
+environments = [e for e in envs_joined.split(',') if e]
 payload = {
   "target": target,
   "tgtVersion": tgt_version,
   "wled_ref": wled_ref,
   "base_source": base_source,
   "environment": environment,
+  "environments": environments,
+  "multi_env": len(environments) > 1,
+  "version_mode": "overlay" if version_is_overlay.lower() == "true" else "wled_ref",
   "repo_sha": repo_sha,
   "timestamp": timestamp,
   "wled_repo": wled_repo,
@@ -237,9 +340,10 @@ with open(meta_path, "w", encoding="utf-8") as fp:
   fp.write("\n")
 PY
 
-printf 'Planned PlatformIO environment: %s\n' "$environment"
+printf 'Version mode: %s\n' "$( [ "$version_is_overlay" = true ] && echo "overlay" || echo "wled-ref" )"
+printf 'Planned PlatformIO environment(s): %s\n' "${resolved_envs[*]}"
 printf 'Planned WLED ref: %s (%s)\n' "$wled_ref" "$base_source"
-printf 'Planned manifest: %s' "$manifest_path"
+printf 'Planned manifest: %s' "${manifest_path:-<none>}"
 if [ "$manifest_fallback" = true ]; then
   printf ' (fallback)'
 fi
@@ -254,7 +358,9 @@ set -e
 
 if [ "$plan_only" = true ]; then
   {
-    echo "Plan only: would run 'npm ci', 'npm run build', and 'pio run -e $environment' in $workspace"
+    for _env in "${resolved_envs[@]}"; do
+      echo "Plan only: would run 'npm ci', 'npm run build', and 'pio run -e $_env' in $workspace"
+    done
   } | tee "$build_log"
   exit 0
 fi
@@ -264,8 +370,19 @@ set +e
   cd "$workspace"
   npm ci
   npm run build
-  pio run -e "$environment"
-) 2>&1 | tee "$build_log"
-build_status=${PIPESTATUS[0]}
+) 2>&1 | tee "$log_dir/npm.log"
+npm_status=${PIPESTATUS[0]}
 set -e
-[ "$build_status" -eq 0 ] || exit "$build_status"
+[ "$npm_status" -eq 0 ] || exit "$npm_status"
+
+for _env in "${resolved_envs[@]}"; do
+  _build_log="$log_dir/build.${_env}.log"
+  set +e
+  (
+    cd "$workspace"
+    pio run -e "$_env"
+  ) 2>&1 | tee "$_build_log"
+  _build_status=${PIPESTATUS[0]}
+  set -e
+  [ "$_build_status" -eq 0 ] || exit "$_build_status"
+done
