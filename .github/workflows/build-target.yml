@@ -48,14 +48,148 @@ on:
       - package-lock.json
 
 jobs:
-  build:
+  resolve-targets:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      count: ${{ steps.resolve.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve target/version build matrix
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TARGET: ${{ github.event.inputs.target || 'seeed-xiao-esp32s3' }}
+          INPUT_VERSION: ${{ github.event.inputs.version || 'v16' }}
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+          PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          PUSH_AFTER_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          repo_root = pathlib.Path('.').resolve()
+          targets_root = repo_root / 'targets'
+          event_name = os.environ.get('EVENT_NAME', '')
+
+          def run_cmd(cmd):
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+              return []
+            return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+          def versions_for_target(target_name):
+            target_dir = targets_root / target_name
+            if not target_dir.is_dir():
+              return []
+            versions = []
+            for child in sorted(target_dir.iterdir()):
+              if not child.is_dir():
+                continue
+              if child.name == 'shared':
+                continue
+              if (child / 'build.json').is_file():
+                versions.append(child.name)
+            return versions
+
+          def manifest_environment(target_name, version_name):
+            manifest_path = targets_root / target_name / version_name / 'build.json'
+            if not manifest_path.is_file():
+              return ''
+            try:
+              with manifest_path.open(encoding='utf-8') as fp:
+                payload = json.load(fp)
+            except Exception:
+              return ''
+            value = payload.get('environment', '')
+            return value if isinstance(value, str) else str(value)
+
+          includes = []
+
+          if event_name == 'workflow_dispatch':
+            includes.append({
+              'target': os.environ.get('INPUT_TARGET', 'seeed-xiao-esp32s3'),
+              'version': os.environ.get('INPUT_VERSION', 'v16'),
+              'environment': os.environ.get('INPUT_ENVIRONMENT', ''),
+            })
+          else:
+            changed_files = []
+            if event_name == 'pull_request':
+              base_sha = os.environ.get('PR_BASE_SHA', '')
+              head_sha = os.environ.get('PR_HEAD_SHA', '')
+              if base_sha and head_sha:
+                changed_files = run_cmd(['git', 'diff', '--name-only', base_sha, head_sha])
+            elif event_name == 'push':
+              before_sha = os.environ.get('PUSH_BEFORE_SHA', '')
+              after_sha = os.environ.get('PUSH_AFTER_SHA', '')
+              if before_sha and before_sha != '0' * 40:
+                changed_files = run_cmd(['git', 'diff', '--name-only', before_sha, after_sha])
+              elif after_sha:
+                changed_files = run_cmd(['git', 'show', '--pretty=', '--name-only', after_sha])
+
+            selected = set()
+            for path in changed_files:
+              parts = pathlib.PurePosixPath(path).parts
+              if len(parts) < 3 or parts[0] != 'targets':
+                continue
+              target_name = parts[1]
+              scope = parts[2]
+              if scope == 'shared':
+                for version_name in versions_for_target(target_name):
+                  selected.add((target_name, version_name))
+              else:
+                version_name = scope
+                candidate_dir = targets_root / target_name / version_name
+                if candidate_dir.is_dir() and (candidate_dir / 'build.json').is_file():
+                  selected.add((target_name, version_name))
+
+            for target_name, version_name in sorted(selected):
+              includes.append({
+                'target': target_name,
+                'version': version_name,
+                'environment': manifest_environment(target_name, version_name),
+              })
+
+          matrix = {'include': includes}
+          output_path = os.environ['GITHUB_OUTPUT']
+          with open(output_path, 'a', encoding='utf-8') as fp:
+            fp.write(f"count={len(includes)}\n")
+            fp.write("matrix<<EOF\n")
+            fp.write(json.dumps(matrix))
+            fp.write("\nEOF\n")
+
+          print('Resolved build matrix:', json.dumps(matrix, indent=2))
+          PY
+
+      - name: No changed target overlays
+        if: steps.resolve.outputs.count == '0' && github.event_name != 'workflow_dispatch'
+        run: |
+          echo "No target/version overlay changes detected under targets/."
+          echo "Skipping Build Target Firmware matrix for this ${{ github.event_name }} event."
+
+  build:
+    needs: resolve-targets
+    if: needs.resolve-targets.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-targets.outputs.matrix) }}
     permissions:
       contents: write
     env:
-      TARGET: ${{ github.event.inputs.target || 'seeed-xiao-esp32s3' }}
-      VERSION: ${{ github.event.inputs.version || 'v16' }}
-      REQUESTED_ENV: ${{ github.event.inputs.environment || '' }}
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ matrix.version }}
+      REQUESTED_ENV: ${{ matrix.environment }}
       RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag || '' }}
       EVENT_NAME: ${{ github.event_name }}
     steps:
