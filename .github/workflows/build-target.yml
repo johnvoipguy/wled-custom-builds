@@ -1,0 +1,151 @@
+name: Build Target Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Target directory under targets/
+        required: true
+        default: seeed-xiao-esp32s3
+      version:
+        description: Target version directory (for example v16)
+        required: true
+        default: v16
+      environment:
+        description: Optional PlatformIO environment (auto-detected from platformio.env.ini when empty)
+        required: false
+        default: ""
+      create_release:
+        description: Create a GitHub Release from this build
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: Optional release tag override
+        required: false
+        default: ""
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-target.yml
+      - scripts/**
+      - targets/**
+      - manifests/**
+      - platformio.ini
+      - requirements.txt
+      - package.json
+      - package-lock.json
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TARGET: ${{ github.event.inputs.target || 'seeed-xiao-esp32s3' }}
+      VERSION: ${{ github.event.inputs.version || 'v16' }}
+      REQUESTED_ENV: ${{ github.event.inputs.environment || '' }}
+      RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: pip
+
+      - name: Install build dependencies
+        run: |
+          npm ci
+          pip install -r requirements.txt
+
+      - name: Build target in temporary workspace
+        id: build
+        run: |
+          build_args=(--target "$TARGET" --version "$VERSION" --keep-workspace)
+          if [ -n "$REQUESTED_ENV" ]; then
+            build_args+=(--environment "$REQUESTED_ENV")
+          fi
+          bash scripts/build-target.sh "${build_args[@]}"
+
+      - name: Package firmware artifacts
+        id: package
+        run: |
+          workspace="${{ steps.build.outputs.workspace }}"
+          environment="${{ steps.build.outputs.environment }}"
+          build_dir="${{ steps.build.outputs.build_dir }}"
+
+          [ -d "$workspace" ] || { echo "Missing workspace: $workspace"; exit 1; }
+          [ -d "$build_dir" ] || { echo "Missing build directory: $build_dir"; exit 1; }
+
+          artifact_name="firmware-${TARGET}-${VERSION}-${environment}"
+          artifact_dir="$RUNNER_TEMP/$artifact_name"
+          mkdir -p "$artifact_dir"
+
+          for file in firmware.bin bootloader.bin partitions.bin; do
+            if [ -f "$build_dir/$file" ]; then
+              cp "$build_dir/$file" "$artifact_dir/"
+            fi
+          done
+
+          [ -f "$artifact_dir/firmware.bin" ] || { echo "firmware.bin was not produced in $build_dir"; exit 1; }
+
+          printf 'target=%s\nversion=%s\nenvironment=%s\nbuild_dir=%s\n' \
+            "$TARGET" "$VERSION" "$environment" "$build_dir" > "$artifact_dir/build-metadata.txt"
+
+          if [ -n "$RELEASE_TAG_INPUT" ]; then
+            release_tag="$RELEASE_TAG_INPUT"
+          else
+            short_sha="${GITHUB_SHA:-}"
+            if [ -n "$short_sha" ]; then
+              short_sha="${short_sha:0:7}"
+            else
+              short_sha="$(git rev-parse --short=7 HEAD)"
+            fi
+            release_tag="${TARGET}-${VERSION}-${environment}-${short_sha}"
+          fi
+
+          release_files=()
+          for file in firmware.bin bootloader.bin partitions.bin build-metadata.txt; do
+            if [ -f "$artifact_dir/$file" ]; then
+              release_files+=("$artifact_dir/$file")
+            fi
+          done
+
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'release_files<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${release_files[@]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.artifact_dir }}
+          if-no-files-found: error
+
+      - name: Create release
+        if: github.event_name == 'workflow_dispatch' && inputs.create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.release_tag }}
+          name: ${{ steps.package.outputs.release_tag }}
+          files: ${{ steps.package.outputs.release_files }}
+          generate_release_notes: true
+
+      - name: Cleanup temporary workspace
+        if: always()
+        run: |
+          workspace="${{ steps.build.outputs.workspace }}"
+          if [ -n "$workspace" ] && [[ "$workspace" == /tmp/* ]]; then
+            rm -rf "$workspace"
+          fi
