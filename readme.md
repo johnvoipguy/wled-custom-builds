@@ -50,11 +50,13 @@ wled_bases/
   <wled_ref>/               ← optional local WLED base checkouts used before upstream fallback
 targets/
   sp530e/
-    shared/                 ← source of truth: partitions, usermods
+    shared/                 ← source of truth: partitions, usermods, build.default.json
     v15/  v16/              ← version deltas / notes (+ build.json manifest)
   seeed-xiao-esp32s3/
     shared/
       platformio.env.ini    ← canonical Seeed PlatformIO env definition
+      build.default.json    ← fallback manifest when targets/<target>/<version>/build.json is missing
+      build.example.json    ← complete manifest example (environment, wled_ref, optional wled_repo)
       partitions/           ← partition table notes (uses tools/WLED_ESP32_8MB.csv)
       usermods/             ← enabled usermod notes
     v15/                    ← version delta (no Seeed-specific content yet)
@@ -67,6 +69,8 @@ targets/
   waveshare-esp32s3-eth/
     shared/
       platformio.env.ini    ← canonical Waveshare PlatformIO env definition
+      build.default.json    ← fallback manifest when targets/<target>/<version>/build.json is missing
+      build.example.json    ← complete manifest example (environment, wled_ref, optional wled_repo)
     v15/
       notes.md              ← v15 active-line delta notes
       assets/
@@ -79,7 +83,7 @@ platformio.ini              ← generic WLED base (root = upstream defaults, not
 
 1. Describe target/version combinations in `manifests/build-matrix.yml`.
 2. Keep target-specific config and assets under `targets/<target>/shared/`.
-3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`).
+3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`), or rely on `targets/<target>/shared/build.default.json` as fallback.
 4. Use `scripts/apply-target.sh` and `scripts/build-target.sh` to stage and build.
 
 ```sh
@@ -92,6 +96,8 @@ scripts/build-target.sh --target seeed-xiao-esp32s3 --version v16
 
 `scripts/build-target.sh` prefers a local base checkout at `wled_bases/<wled_ref>/`.
 If it does not exist, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` in a temporary workspace.
+When version-specific `targets/<target>/<version>/build.json` is missing, it automatically falls back to `targets/<target>/shared/build.default.json`.
+`scripts/apply-target.sh` also ensures copied `platformio.env.ini` is included from workspace `platformio.ini` via `[platformio] extra_configs` so custom env names are recognized in upstream workspaces.
 Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`.
 
 ## Legacy scripts
