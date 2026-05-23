@@ -87,18 +87,54 @@ platformio.ini              ← generic WLED base (root = upstream defaults, not
 4. Use `scripts/apply-target.sh` and `scripts/build-target.sh` to stage and build.
 
 ```sh
-# Stage Seeed assets into an existing WLED workspace
+# Stage Seeed assets into an existing WLED workspace (overlay mode: v16/ dir exists)
 scripts/apply-target.sh --target seeed-xiao-esp32s3 --version v16 --workspace /path/to/wled
 
-# Stage + build in a temporary workspace
+# Stage + build in a temporary workspace (overlay mode)
 scripts/build-target.sh --target seeed-xiao-esp32s3 --version v16
+
+# Build against a specific upstream WLED ref (WLED-ref mode: 'main' dir does not exist)
+scripts/build-target.sh --target seeed-xiao-esp32s3 --version main
+
+# Force a specific environment when needed
+scripts/build-target.sh --target seeed-xiao-esp32s3 --version v16 --environment seeed_xiao_esp32s3v2
 ```
+
+### Version semantics
+
+`scripts/build-target.sh` interprets `--version <v>` in one of two ways:
+
+| Condition | Mode | Behavior |
+|---|---|---|
+| `targets/<target>/<v>/` **exists** | **Overlay** | `<v>` is a version key. Assets from `shared/` and `<v>/` are applied. Manifest: `<v>/build.json` → `shared/build.default.json`. |
+| `targets/<target>/<v>/` **does not exist** | **WLED-ref** | `<v>` is treated as the WLED git ref (branch or tag). Only `shared/` assets are applied. Manifest: `shared/build.default.json` (optional). |
+
+In WLED-ref mode, the WLED ref defaults to `--version` unless `--wled-ref` is explicitly passed.
+
+### Environment resolution
+
+The build environment is resolved in this order (first non-empty value wins):
+
+1. `--environment <env>` CLI flag
+2. `environment` field in the resolved manifest (`build.json` or `build.default.json`)
+3. `[env:<name>]` sections parsed from `targets/<target>/shared/platformio.env.ini`
+
+When parsing the env fragment:
+- **Exactly one env found**: used automatically.
+- **Multiple envs found (local)**: all environments are built sequentially; per-env logs written as `build.<env>.log`.
+- **Multiple envs found (CI)**: build fails with an error. Specify `--environment` or set `environment` in the manifest.
+
+To always use a known single environment, pass `--environment` explicitly or set it in the manifest.
 
 `scripts/build-target.sh` prefers a local base checkout at `wled_bases/<wled_ref>/`.
 If it does not exist, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` in a temporary workspace.
 When version-specific `targets/<target>/<version>/build.json` is missing, it automatically falls back to `targets/<target>/shared/build.default.json`.
 `scripts/apply-target.sh` also ensures copied `platformio.env.ini` is included from workspace `platformio.ini` via `[platformio] extra_configs` so custom env names are recognized in upstream workspaces.
-Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`.
+Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`:
+- `apply.log` — target asset staging output
+- `npm.log` — `npm ci` + `npm run build` output
+- `build.<env>.log` — PlatformIO build output (one file per built environment)
+- `meta.json` — build metadata (target, version, wled_ref, environment(s), version_mode, etc.)
 
 ## Legacy scripts
 

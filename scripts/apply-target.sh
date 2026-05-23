@@ -3,10 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/apply-target.sh --target <target> --version <version> --workspace <path> [--plan]
+Usage: scripts/apply-target.sh --target <target> --version <version> --workspace <path> [--no-version-overlay] [--plan]
 
 Copies tracked target assets from targets/<target>/shared and targets/<target>/<version>
 into an existing WLED workspace without creating clone farms.
+
+--no-version-overlay  Skip copying version-specific assets (only shared/ assets are applied).
+                      Used when <version> is a WLED ref rather than a version overlay directory.
 USAGE
 }
 
@@ -162,6 +165,7 @@ target=
 version=
 workspace=
 plan_only=false
+no_version_overlay=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -179,6 +183,10 @@ while [ $# -gt 0 ]; do
       ;;
     --plan|--dry-run)
       plan_only=true
+      shift
+      ;;
+    --no-version-overlay)
+      no_version_overlay=true
       shift
       ;;
     -h|--help)
@@ -202,7 +210,9 @@ shared_dir="$base_dir/shared"
 version_dir="$base_dir/$version"
 
 [ -d "$base_dir" ] || die "target '$target' does not exist under $repo_root/targets"
-[ -d "$version_dir" ] || die "version '$version' does not exist for target '$target'"
+if [ "$no_version_overlay" = false ]; then
+  [ -d "$version_dir" ] || die "version '$version' does not exist for target '$target'"
+fi
 [ -d "$workspace" ] || die "workspace '$workspace' does not exist"
 [ -d "$workspace/wled00" ] || die "workspace '$workspace' does not look like a WLED checkout"
 
@@ -214,18 +224,24 @@ done
 
 if [ "$plan_only" = true ]; then
   echo "Plan only: no files copied."
-  find "$shared_dir" "$version_dir" -mindepth 1 -maxdepth 2 ! -name '.gitkeep' | sort
+  if [ "$no_version_overlay" = true ]; then
+    find "$shared_dir" -mindepth 1 -maxdepth 2 ! -name '.gitkeep' | sort
+  else
+    find "$shared_dir" "$version_dir" -mindepth 1 -maxdepth 2 ! -name '.gitkeep' | sort
+  fi
   exit 0
 fi
 
 copy_tree "$shared_dir/usermods" "$workspace/usermods"
 copy_tree "$shared_dir/partitions" "$workspace/tools"
-copy_tree "$version_dir/usermods" "$workspace/usermods"
-copy_tree "$version_dir/partitions" "$workspace/tools"
+if [ "$no_version_overlay" = false ]; then
+  copy_tree "$version_dir/usermods" "$workspace/usermods"
+  copy_tree "$version_dir/partitions" "$workspace/tools"
+fi
 copy_env_fragment "$shared_dir/platformio.env.ini" "$workspace"
 ensure_env_fragment_extra_config "$workspace/platformio.ini" "platformio.env.ini"
 
 echo "Applied target assets into $workspace"
-if [ -f "$version_dir/notes.md" ]; then
+if [ "$no_version_overlay" = false ] && [ -f "$version_dir/notes.md" ]; then
   echo "Notes: $version_dir/notes.md"
 fi
