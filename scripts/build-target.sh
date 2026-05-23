@@ -5,9 +5,11 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/build-target.sh --target <target> --version <version> [--environment <pio-env>] [--wled-ref <ref>] [--wled-repo <repo-url>] [--workspace <path>] [--plan]
 
-By default this reads targets/<target>/<version>/build.json, prepares a temporary workspace
-under /tmp from a local wled_bases/<wled_ref>/ checkout when available (or clones upstream),
-applies target assets, and prints or runs the standard WLED build commands.
+By default this reads targets/<target>/<version>/build.json and falls back to
+targets/<target>/shared/build.default.json when version-specific manifest is missing.
+It prepares a temporary workspace under /tmp from a local wled_bases/<wled_ref>/
+checkout when available (or clones upstream), applies target assets, and prints
+or runs the standard WLED build commands.
 USAGE
 }
 
@@ -57,6 +59,9 @@ base_source=
 script_dir=
 repo_root=
 manifest_path=
+version_manifest_path=
+fallback_manifest_path=
+manifest_fallback=false
 log_dir=
 apply_log=
 build_log=
@@ -113,7 +118,8 @@ done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
-manifest_path="$repo_root/targets/$target/$version/build.json"
+version_manifest_path="$repo_root/targets/$target/$version/build.json"
+fallback_manifest_path="$repo_root/targets/$target/shared/build.default.json"
 default_wled_repo="https://github.com/Aircoookie/WLED.git"
 timestamp_utc=$(date -u +%Y%m%d-%H%M)
 log_dir="$repo_root/logs/$target/$version/$timestamp_utc"
@@ -124,7 +130,14 @@ repo_sha=$(git -C "$repo_root" rev-parse HEAD)
 
 mkdir -p "$log_dir"
 
-[ -f "$manifest_path" ] || die "missing manifest: $manifest_path"
+if [ -f "$version_manifest_path" ]; then
+  manifest_path="$version_manifest_path"
+elif [ -f "$fallback_manifest_path" ]; then
+  manifest_path="$fallback_manifest_path"
+  manifest_fallback=true
+else
+  die "missing manifest: $version_manifest_path (fallback also missing: $fallback_manifest_path)"
+fi
 
 if [ -z "$environment" ]; then
   environment=$(json_get_value "$manifest_path" "environment")
@@ -199,12 +212,14 @@ set_github_output "log_dir" "$log_dir"
 set_github_output "apply_log" "$apply_log"
 set_github_output "build_log" "$build_log"
 set_github_output "meta_json" "$meta_json"
+set_github_output "manifest_path" "$manifest_path"
+set_github_output "manifest_fallback" "$manifest_fallback"
 
-python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" <<'PY'
+python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" <<'PY'
 import json
 import sys
 
-meta_path, target, tgt_version, wled_ref, base_source, environment, repo_sha, timestamp, wled_repo = sys.argv[1:]
+meta_path, target, tgt_version, wled_ref, base_source, environment, repo_sha, timestamp, wled_repo, manifest_path, manifest_fallback = sys.argv[1:]
 payload = {
   "target": target,
   "tgtVersion": tgt_version,
@@ -214,6 +229,8 @@ payload = {
   "repo_sha": repo_sha,
   "timestamp": timestamp,
   "wled_repo": wled_repo,
+  "manifest_path": manifest_path,
+  "manifest_fallback": manifest_fallback.lower() == "true",
 }
 with open(meta_path, "w", encoding="utf-8") as fp:
   json.dump(payload, fp, indent=2)
@@ -222,6 +239,11 @@ PY
 
 printf 'Planned PlatformIO environment: %s\n' "$environment"
 printf 'Planned WLED ref: %s (%s)\n' "$wled_ref" "$base_source"
+printf 'Planned manifest: %s' "$manifest_path"
+if [ "$manifest_fallback" = true ]; then
+  printf ' (fallback)'
+fi
+printf '\n'
 printf 'Workspace: %s\n' "$workspace"
 
 set +e

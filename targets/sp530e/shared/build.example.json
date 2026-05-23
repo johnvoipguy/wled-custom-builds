@@ -1,0 +1,5 @@
+{
+  "environment": "sp530e",
+  "wled_ref": "v16.0.0",
+  "wled_repo": "https://github.com/Aircoookie/WLED.git"
+}
