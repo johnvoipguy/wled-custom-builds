@@ -88,17 +88,27 @@ jobs:
               return []
             return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
+          def is_version_overlay_dir(path_obj):
+            if not path_obj.is_dir():
+              return False
+            if path_obj.name in {'shared', '.git'}:
+              return False
+            markers = [
+              path_obj / 'build.json',
+              path_obj / 'build-old.json',
+              path_obj / 'platformio.env.ini',
+              path_obj / 'platformio-env.ini',
+              path_obj / 'notes.md',
+            ]
+            return any(marker.exists() for marker in markers)
+
           def versions_for_target(target_name):
             target_dir = targets_root / target_name
             if not target_dir.is_dir():
               return []
             versions = []
             for child in sorted(target_dir.iterdir()):
-              if not child.is_dir():
-                continue
-              if child.name == 'shared':
-                continue
-              if (child / 'build.json').is_file():
+              if is_version_overlay_dir(child):
                 versions.append(child.name)
             return versions
 
@@ -150,7 +160,7 @@ jobs:
               else:
                 version_name = scope
                 candidate_dir = targets_root / target_name / version_name
-                if candidate_dir.is_dir() and (candidate_dir / 'build.json').is_file():
+                if is_version_overlay_dir(candidate_dir):
                   selected.add((target_name, version_name))
 
             for target_name, version_name in sorted(selected):
