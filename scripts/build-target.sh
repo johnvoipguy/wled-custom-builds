@@ -287,7 +287,7 @@ register_artifact_path() {
   return 0
 }
 
-# Generate a merged full flash image (bootloader + partitions + app) using esptool merge_bin
+# Generate a merged full flash image (bootloader + partitions + app) using esptool merge-bin
 merge_full_image_for_env() {
   local env_name=$1
   local env_output_dir="$output_dir/$env_name"
@@ -320,29 +320,34 @@ merge_full_image_for_env() {
   local bootloader_offset
   bootloader_offset=$(bootloader_offset_for_chip "$chip")
 
-  # Locate esptool from PlatformIO toolchain, then fall back to PATH / python3 module
+  # Locate esptool (prefer executable form). Resolution order:
+  #  1) PlatformIO tool package: ~/.platformio/packages/tool-esptoolpy/esptool
+  #  2) esptool on PATH
+  #  3) python3 -m esptool
   local esptool_cmd=()
   local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
-  if [ -f "$pio_home/packages/tool-esptoolpy/esptool.py" ]; then
-    esptool_cmd=(python3 "$pio_home/packages/tool-esptoolpy/esptool.py")
-  elif command -v esptool.py >/dev/null 2>&1; then
-    esptool_cmd=(esptool.py)
+  if [ -x "$pio_home/packages/tool-esptoolpy/esptool" ]; then
+    esptool_cmd=("$pio_home/packages/tool-esptoolpy/esptool")
+  elif command -v esptool >/dev/null 2>&1; then
+    esptool_cmd=(esptool)
   elif python3 -m esptool version >/dev/null 2>&1; then
     esptool_cmd=(python3 -m esptool)
   else
-    die "merge_full_image ($env_name): cannot locate esptool.py — ensure PlatformIO is installed or esptool is on PATH"
+    die "merge_full_image ($env_name): cannot locate esptool — ensure PlatformIO is installed or esptool is on PATH"
   fi
 
   echo "Generating merged full image: $full_bin_path"
   echo "  chip=$chip  bootloader_offset=$bootloader_offset"
+  echo "  cmd: ${esptool_cmd[*]} --chip $chip merge-bin -o \"$full_bin_path\" $bootloader_offset \"$bootloader_bin\" 0x8000 \"$partitions_bin\" 0x10000 \"$firmware_bin\""
+
   # Standard WLED/ESP32 flash offsets: partitions at 0x8000, app at 0x10000.
   # Bootloader offset varies by chip (see bootloader_offset_for_chip).
-  "${esptool_cmd[@]}" --chip "$chip" merge_bin \
+  "${esptool_cmd[@]}" --chip "$chip" merge-bin \
     -o "$full_bin_path" \
     "$bootloader_offset" "$bootloader_bin" \
     0x8000              "$partitions_bin"  \
     0x10000             "$firmware_bin"    \
-    || die "merge_full_image ($env_name): esptool merge_bin failed"
+    || die "merge_full_image ($env_name): esptool merge-bin failed"
 
   register_artifact_path "$full_bin_path"
   local merged_size
