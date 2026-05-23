@@ -96,6 +96,30 @@ print(f"{value:.2f} {unit}" if unit != "B" else f"{int(value)} {unit}")
 PY
 }
 
+# Detect ESP chip type from PlatformIO environment name
+detect_chip_from_env() {
+  local env_name=$1
+  local lower_env
+  lower_env=$(printf '%s' "$env_name" | tr '[:upper:]' '[:lower:]')
+  if   [[ "$lower_env" == *"esp32s3"* ]]; then echo "esp32s3"
+  elif [[ "$lower_env" == *"esp32c3"* ]]; then echo "esp32c3"
+  elif [[ "$lower_env" == *"esp32c6"* ]]; then echo "esp32c6"
+  elif [[ "$lower_env" == *"esp32s2"* ]]; then echo "esp32s2"
+  elif [[ "$lower_env" == *"esp32h2"* ]]; then echo "esp32h2"
+  elif [[ "$lower_env" == *"esp8266"* ]] || [[ "$lower_env" == *"nodemcu"* ]]; then echo "esp8266"
+  else echo "esp32"
+  fi
+}
+
+# Return bootloader flash offset for a given chip type.
+# esp32 and esp32s2 place the bootloader at 0x1000; all newer variants use 0x0.
+bootloader_offset_for_chip() {
+  case "$1" in
+    esp32|esp32s2) echo "0x1000" ;;
+    *)             echo "0x0" ;;
+  esac
+}
+
 target=
 version=
 environment=
@@ -113,6 +137,8 @@ fallback_manifest_path=
 manifest_fallback=false
 version_is_overlay=
 multi_env=false
+date_part=
+time_part=
 log_dir=
 apply_log=
 build_log=
@@ -175,13 +201,15 @@ repo_root=$(cd "$script_dir/.." && pwd)
 version_manifest_path="$repo_root/targets/$target/$version/build.json"
 fallback_manifest_path="$repo_root/targets/$target/shared/build.default.json"
 default_wled_repo="https://github.com/Aircoookie/WLED.git"
-timestamp_utc=$(date -u +%Y%m%d-%H%M%S)
-log_dir="$repo_root/logs/$target/$version/$timestamp_utc"
-run_log="$log_dir/run.log"
+date_part=$(date -u +%Y%m%d)
+time_part=$(date -u +%H%M%S)
+timestamp_utc="${date_part}-${time_part}"
+log_dir="$repo_root/logs/$target/$version/$date_part"
+run_log="$log_dir/run-${time_part}.log"
 apply_log="$run_log"
 build_log="$run_log"
-summary_log="$log_dir/summary.txt"
-meta_json="$log_dir/meta.json"
+summary_log="$log_dir/summary-${time_part}.txt"
+meta_json="$log_dir/meta-${time_part}.json"
 output_dir="$repo_root/outputs/$target/$version/$timestamp_utc"
 repo_sha=$(git -C "$repo_root" rev-parse HEAD)
 
@@ -245,6 +273,83 @@ copy_artifacts_for_env() {
   done
 }
 
+# Register a file already present in output_dir (no copy needed) into the artifacts list
+register_artifact_path() {
+  local full_path=$1
+  [ -f "$full_path" ] || return 1
+  local rel_path="${full_path#"$output_dir"/}"
+  if [ -z "${copied_artifact_seen[$rel_path]+x}" ]; then
+    local size_bytes
+    size_bytes=$(wc -c < "$full_path" | tr -d '[:space:]')
+    copied_artifacts+=("$rel_path|$size_bytes")
+    copied_artifact_seen["$rel_path"]=1
+  fi
+  return 0
+}
+
+# Generate a merged full flash image (bootloader + partitions + app) using esptool merge_bin
+merge_full_image_for_env() {
+  local env_name=$1
+  local env_output_dir="$output_dir/$env_name"
+  local release_output_dir="$output_dir/release"
+
+  local bootloader_bin="$env_output_dir/bootloader.bin"
+  local partitions_bin="$env_output_dir/partitions.bin"
+  local firmware_bin="$env_output_dir/firmware.bin"
+
+  [ -f "$bootloader_bin" ] || die "merge_full_image ($env_name): bootloader.bin not found at $bootloader_bin"
+  [ -f "$partitions_bin" ] || die "merge_full_image ($env_name): partitions.bin not found at $partitions_bin"
+  [ -f "$firmware_bin" ]   || die "merge_full_image ($env_name): firmware.bin not found at $firmware_bin"
+
+  # Determine release bin name (exclude any pre-existing *.full.bin)
+  shopt -s nullglob
+  local all_release_bins=("$release_output_dir/"*.bin)
+  shopt -u nullglob
+  local app_release_bins=()
+  for rb in "${all_release_bins[@]}"; do
+    [[ "$(basename "$rb")" == *.full.bin ]] || app_release_bins+=("$rb")
+  done
+  [ "${#app_release_bins[@]}" -gt 0 ] || die "merge_full_image ($env_name): no release .bin found in $release_output_dir — ensure copy_artifacts_for_env ran successfully"
+
+  local release_name
+  release_name=$(basename "${app_release_bins[0]}" .bin)
+  local full_bin_path="$release_output_dir/${release_name}.full.bin"
+
+  local chip
+  chip=$(detect_chip_from_env "$env_name")
+  local bootloader_offset
+  bootloader_offset=$(bootloader_offset_for_chip "$chip")
+
+  # Locate esptool from PlatformIO toolchain, then fall back to PATH / python3 module
+  local esptool_cmd=()
+  local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
+  if [ -f "$pio_home/packages/tool-esptoolpy/esptool.py" ]; then
+    esptool_cmd=(python3 "$pio_home/packages/tool-esptoolpy/esptool.py")
+  elif command -v esptool.py >/dev/null 2>&1; then
+    esptool_cmd=(esptool.py)
+  elif python3 -m esptool version >/dev/null 2>&1; then
+    esptool_cmd=(python3 -m esptool)
+  else
+    die "merge_full_image ($env_name): cannot locate esptool.py — ensure PlatformIO is installed or esptool is on PATH"
+  fi
+
+  echo "Generating merged full image: $full_bin_path"
+  echo "  chip=$chip  bootloader_offset=$bootloader_offset"
+  # Standard WLED/ESP32 flash offsets: partitions at 0x8000, app at 0x10000.
+  # Bootloader offset varies by chip (see bootloader_offset_for_chip).
+  "${esptool_cmd[@]}" --chip "$chip" merge_bin \
+    -o "$full_bin_path" \
+    "$bootloader_offset" "$bootloader_bin" \
+    0x8000              "$partitions_bin"  \
+    0x10000             "$firmware_bin"    \
+    || die "merge_full_image ($env_name): esptool merge_bin failed"
+
+  register_artifact_path "$full_bin_path"
+  local merged_size
+  merged_size=$(wc -c < "$full_bin_path" | tr -d '[:space:]')
+  echo "Merged full image size: $(human_size_bytes "$merged_size")"
+}
+
 # Manifest resolution
 if [ "$version_is_overlay" = true ]; then
   if [ -f "$version_manifest_path" ]; then
@@ -297,9 +402,6 @@ environment=${resolved_envs[0]}
 if [ "${#resolved_envs[@]}" -gt 1 ]; then
   multi_env=true
 fi
-
-# build_log points to first (or only) env log; per-env logs written as build.<env>.log
-build_log="$log_dir/build.${environment}.log"
 
 # wled_ref resolution: CLI flag -> version (WLED-ref mode) or manifest (overlay mode)
 if [ -z "$wled_ref" ]; then
@@ -473,6 +575,7 @@ for _env in "${resolved_envs[@]}"; do
     pio run -e "$_env"
   )
   copy_artifacts_for_env "$_env"
+  merge_full_image_for_env "$_env"
 done
 
 {
@@ -504,7 +607,9 @@ done
 latest_dir="$repo_root/logs/$target/$version/latest"
 rm -rf "$latest_dir"
 mkdir -p "$latest_dir"
-cp -a "$log_dir/." "$latest_dir/"
+cp "$run_log" "$latest_dir/run.log"
+cp "$meta_json" "$latest_dir/meta.json"
+[ -f "$summary_log" ] && cp "$summary_log" "$latest_dir/summary.txt" || true
 
 echo
 echo "Build outputs saved to: $output_dir"
