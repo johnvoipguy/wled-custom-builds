@@ -14,9 +14,9 @@ Version semantics:
 Environment resolution order (first non-empty wins):
   1. --environment CLI flag
   2. 'environment' field in manifest
-  3. [env:<name>] sections in target env fragment (shared or version-level):
-     targets/<target>/shared/platformio.env.ini, targets/<target>/shared/platformio-env.ini,
-     targets/<target>/<version>/platformio.env.ini, or targets/<target>/<version>/platformio-env.ini
+  3. [env:<name>] sections in target env fragment (version-level first, shared fallback):
+     targets/<target>/<version>/platformio.env.ini, targets/<target>/<version>/platformio-env.ini,
+     targets/<target>/shared/platformio.env.ini, or targets/<target>/shared/platformio-env.ini
      - Exactly one env found: use it automatically.
      - Multiple envs found: build all (local only). CI disallows multi-env without explicit selection.
 
@@ -84,10 +84,10 @@ PY
 resolve_env_ini_path() {
   local target_name=$1
   local candidates=(
-    "$repo_root/targets/$target_name/shared/platformio.env.ini"
-    "$repo_root/targets/$target_name/shared/platformio-env.ini"
     "$repo_root/targets/$target_name/$version/platformio.env.ini"
     "$repo_root/targets/$target_name/$version/platformio-env.ini"
+    "$repo_root/targets/$target_name/shared/platformio.env.ini"
+    "$repo_root/targets/$target_name/shared/platformio-env.ini"
   )
 
   local candidate

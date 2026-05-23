@@ -42,6 +42,30 @@ copy_env_fragment() {
   echo "Copied env fragment: $source_file -> $dest_dir/platformio.env.ini"
 }
 
+is_env_fragment_file() {
+  local source_file=$1
+
+  python - "$source_file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+section_re = re.compile(r'^\s*\[([^\]]+)\]\s*$')
+sections = []
+
+with open(path, encoding="utf-8") as fp:
+    for line in fp:
+        match = section_re.match(line)
+        if match:
+            sections.append(match.group(1).strip())
+
+has_env_section = any(section.startswith("env:") for section in sections)
+has_non_env_section = any(not section.startswith("env:") for section in sections)
+
+sys.exit(0 if has_env_section and not has_non_env_section else 1)
+PY
+}
+
 resolve_env_fragment_in_dir() {
   local base_dir=$1
   local candidates=(
@@ -52,8 +76,11 @@ resolve_env_fragment_in_dir() {
   local candidate
   for candidate in "${candidates[@]}"; do
     if [ -f "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return 0
+      if is_env_fragment_file "$candidate"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+      echo "Skipping non-fragment PlatformIO config: $candidate" >&2
     fi
   done
   return 1
@@ -256,17 +283,15 @@ if [ "$no_version_overlay" = false ]; then
   copy_tree "$version_dir/partitions" "$workspace/tools"
 fi
 
-shared_env_fragment=$(resolve_env_fragment_in_dir "$shared_dir" || true)
-if [ -n "$shared_env_fragment" ]; then
-  copy_env_fragment "$shared_env_fragment" "$workspace"
-fi
-
+selected_env_fragment=
 if [ "$no_version_overlay" = false ]; then
-  version_env_fragment=$(resolve_env_fragment_in_dir "$version_dir" || true)
-  if [ -n "$version_env_fragment" ]; then
-    # Version overlay takes precedence when it defines env settings.
-    copy_env_fragment "$version_env_fragment" "$workspace"
-  fi
+  selected_env_fragment=$(resolve_env_fragment_in_dir "$version_dir" || true)
+fi
+if [ -z "$selected_env_fragment" ]; then
+  selected_env_fragment=$(resolve_env_fragment_in_dir "$shared_dir" || true)
+fi
+if [ -n "$selected_env_fragment" ]; then
+  copy_env_fragment "$selected_env_fragment" "$workspace"
 fi
 
 ensure_env_fragment_extra_config "$workspace/platformio.ini" "platformio.env.ini"
