@@ -111,11 +111,12 @@ detect_chip_from_env() {
   fi
 }
 
-# Return bootloader flash offset for a given chip type
+# Return bootloader flash offset for a given chip type.
+# esp32 and esp32s2 place the bootloader at 0x1000; all newer variants use 0x0.
 bootloader_offset_for_chip() {
   case "$1" in
-    esp32) echo "0x1000" ;;
-    *)     echo "0x0" ;;
+    esp32|esp32s2) echo "0x1000" ;;
+    *)             echo "0x0" ;;
   esac
 }
 
@@ -308,7 +309,7 @@ merge_full_image_for_env() {
   for rb in "${all_release_bins[@]}"; do
     [[ "$(basename "$rb")" == *.full.bin ]] || app_release_bins+=("$rb")
   done
-  [ "${#app_release_bins[@]}" -gt 0 ] || die "merge_full_image ($env_name): no release .bin found in $release_output_dir"
+  [ "${#app_release_bins[@]}" -gt 0 ] || die "merge_full_image ($env_name): no release .bin found in $release_output_dir — ensure copy_artifacts_for_env ran successfully"
 
   local release_name
   release_name=$(basename "${app_release_bins[0]}" .bin)
@@ -334,6 +335,8 @@ merge_full_image_for_env() {
 
   echo "Generating merged full image: $full_bin_path"
   echo "  chip=$chip  bootloader_offset=$bootloader_offset"
+  # Standard WLED/ESP32 flash offsets: partitions at 0x8000, app at 0x10000.
+  # Bootloader offset varies by chip (see bootloader_offset_for_chip).
   "${esptool_cmd[@]}" --chip "$chip" merge_bin \
     -o "$full_bin_path" \
     "$bootloader_offset" "$bootloader_bin" \
