@@ -67,8 +67,12 @@ import re
 import sys
 
 ini_file = sys.argv[1]
-with open(ini_file, encoding="utf-8") as fp:
-  content = fp.read()
+try:
+  with open(ini_file, encoding="utf-8") as fp:
+    content = fp.read()
+except OSError as exc:
+  print(f"Error: cannot read {ini_file}: {exc}", file=sys.stderr)
+  sys.exit(1)
 envs = re.findall(r'^\[env:([^\]]+)\]', content, re.MULTILINE)
 for e in envs:
   print(e)
@@ -212,7 +216,7 @@ else
     fi
   fi
 fi
-[ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment. Pass --environment or set 'environment' in the manifest or shared/platformio.env.ini."
+[ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment for target '$target'. Pass --environment or set 'environment' in the manifest or targets/$target/shared/platformio.env.ini."
 
 environment=${resolved_envs[0]}
 if [ "${#resolved_envs[@]}" -gt 1 ]; then
@@ -232,7 +236,7 @@ if [ -z "$wled_ref" ]; then
     wled_ref=$(json_get_value "$manifest_path" "wled_ref")
   fi
 fi
-[ -n "$wled_ref" ] || die "manifest '$manifest_path' must define non-empty 'wled_ref' (or pass --wled-ref)"
+[ -n "$wled_ref" ] || die "Could not determine wled_ref for target '$target'. Pass --wled-ref or ensure the manifest defines 'wled_ref'."
 
 # wled_repo resolution: CLI flag -> manifest -> default
 if [ -z "$wled_repo" ]; then
@@ -328,7 +332,7 @@ payload = {
   "environment": environment,
   "environments": environments,
   "multi_env": len(environments) > 1,
-  "version_mode": "overlay" if version_is_overlay.lower() == "true" else "wled_ref",
+  "version_mode": "overlay" if version_is_overlay.lower() == "true" else "wled-ref",
   "repo_sha": repo_sha,
   "timestamp": timestamp,
   "wled_repo": wled_repo,

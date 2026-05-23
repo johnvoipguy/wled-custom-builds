@@ -130,7 +130,11 @@ To always use a known single environment, pass `--environment` explicitly or set
 If it does not exist, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` in a temporary workspace.
 When version-specific `targets/<target>/<version>/build.json` is missing, it automatically falls back to `targets/<target>/shared/build.default.json`.
 `scripts/apply-target.sh` also ensures copied `platformio.env.ini` is included from workspace `platformio.ini` via `[platformio] extra_configs` so custom env names are recognized in upstream workspaces.
-Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`.
+Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`:
+- `apply.log` — target asset staging output
+- `npm.log` — `npm ci` + `npm run build` output
+- `build.<env>.log` — PlatformIO build output (one file per built environment)
+- `meta.json` — build metadata (target, version, wled_ref, environment(s), version_mode, etc.)
 
 ## Legacy scripts
 
