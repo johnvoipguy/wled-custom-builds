@@ -42,6 +42,23 @@ copy_env_fragment() {
   echo "Copied env fragment: $source_file -> $dest_dir/platformio.env.ini"
 }
 
+resolve_env_fragment_in_dir() {
+  local base_dir=$1
+  local candidates=(
+    "$base_dir/platformio.env.ini"
+    "$base_dir/platformio-env.ini"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 ensure_env_fragment_extra_config() {
   local workspace_ini=$1
   local env_fragment=$2
@@ -238,7 +255,20 @@ if [ "$no_version_overlay" = false ]; then
   copy_tree "$version_dir/usermods" "$workspace/usermods"
   copy_tree "$version_dir/partitions" "$workspace/tools"
 fi
-copy_env_fragment "$shared_dir/platformio.env.ini" "$workspace"
+
+shared_env_fragment=$(resolve_env_fragment_in_dir "$shared_dir" || true)
+if [ -n "$shared_env_fragment" ]; then
+  copy_env_fragment "$shared_env_fragment" "$workspace"
+fi
+
+if [ "$no_version_overlay" = false ]; then
+  version_env_fragment=$(resolve_env_fragment_in_dir "$version_dir" || true)
+  if [ -n "$version_env_fragment" ]; then
+    # Version overlay takes precedence when it defines env settings.
+    copy_env_fragment "$version_env_fragment" "$workspace"
+  fi
+fi
+
 ensure_env_fragment_extra_config "$workspace/platformio.ini" "platformio.env.ini"
 
 echo "Applied target assets into $workspace"

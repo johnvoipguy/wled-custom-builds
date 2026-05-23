@@ -14,7 +14,9 @@ Version semantics:
 Environment resolution order (first non-empty wins):
   1. --environment CLI flag
   2. 'environment' field in manifest
-  3. [env:<name>] sections in targets/<target>/shared/platformio.env.ini
+  3. [env:<name>] sections in target env fragment (shared or version-level):
+     targets/<target>/shared/platformio.env.ini, targets/<target>/shared/platformio-env.ini,
+     targets/<target>/<version>/platformio.env.ini, or targets/<target>/<version>/platformio-env.ini
      - Exactly one env found: use it automatically.
      - Multiple envs found: build all (local only). CI disallows multi-env without explicit selection.
 
@@ -77,6 +79,25 @@ envs = re.findall(r'^\[env:([^\]]+)\]', content, re.MULTILINE)
 for e in envs:
   print(e)
 PY
+}
+
+resolve_env_ini_path() {
+  local target_name=$1
+  local candidates=(
+    "$repo_root/targets/$target_name/shared/platformio.env.ini"
+    "$repo_root/targets/$target_name/shared/platformio-env.ini"
+    "$repo_root/targets/$target_name/$version/platformio.env.ini"
+    "$repo_root/targets/$target_name/$version/platformio-env.ini"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
 }
 
 human_size_bytes() {
@@ -198,6 +219,18 @@ done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
+
+if [ ! -d "$repo_root/targets/$target" ]; then
+  shopt -s nullglob
+  local_target_dirs=("$repo_root/targets"/*)
+  shopt -u nullglob
+  known_targets=()
+  for td in "${local_target_dirs[@]}"; do
+    [ -d "$td" ] && known_targets+=("$(basename "$td")")
+  done
+  die "Unknown target '$target'. Available targets: ${known_targets[*]}"
+fi
+
 version_manifest_path="$repo_root/targets/$target/$version/build.json"
 fallback_manifest_path="$repo_root/targets/$target/shared/build.default.json"
 default_wled_repo="https://github.com/Aircoookie/WLED.git"
@@ -394,9 +427,10 @@ else
   if [ -n "$_env_from_manifest" ]; then
     resolved_envs=("$_env_from_manifest")
   else
-    _shared_ini="$repo_root/targets/$target/shared/platformio.env.ini"
+    _shared_ini=
+    _shared_ini=$(resolve_env_ini_path "$target" || true)
     _parsed_envs=()
-    if [ -f "$_shared_ini" ]; then
+    if [ -n "$_shared_ini" ] && [ -f "$_shared_ini" ]; then
       mapfile -t _parsed_envs < <(parse_envs_from_ini "$_shared_ini")
     fi
     if [ "${#_parsed_envs[@]}" -eq 1 ]; then
@@ -410,7 +444,7 @@ else
     fi
   fi
 fi
-[ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment for target '$target'. Pass --environment or set 'environment' in the manifest or targets/$target/shared/platformio.env.ini."
+[ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment for target '$target'. Pass --environment or set 'environment' in the manifest or provide target env config in targets/$target/shared/platformio.env.ini or targets/$target/shared/platformio-env.ini."
 
 environment=${resolved_envs[0]}
 if [ "${#resolved_envs[@]}" -gt 1 ]; then

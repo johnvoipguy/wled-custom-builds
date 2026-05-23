@@ -12,7 +12,7 @@ on:
         required: true
         default: v16
       environment:
-        description: Optional PlatformIO environment (auto-detected from platformio.env.ini when empty)
+        description: Optional PlatformIO environment (auto-detected from target platformio.env.ini or platformio-env.ini when empty)
         required: false
         default: ""
       create_release:
@@ -83,7 +83,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'platformio*.ini', 'targets/**/platformio.env.ini') }}
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'platformio*.ini', 'targets/**/platformio.env.ini', 'targets/**/platformio-env.ini') }}
           restore-keys: |
             ${{ runner.os }}-platformio-
 
