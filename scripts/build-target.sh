@@ -327,11 +327,16 @@ merge_full_image_for_env() {
   #  4) python3 -m esptool
   local esptool_cmd=()
   local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
+  local pio_esptool="$pio_home/packages/tool-esptoolpy/esptool"
+  local pio_esptool_py="$pio_home/packages/tool-esptoolpy/esptool/esptool.py"
 
-  if [ -x "$pio_home/packages/tool-esptoolpy/esptool" ]; then
-    esptool_cmd=("$pio_home/packages/tool-esptoolpy/esptool")
-  elif [ -f "$pio_home/packages/tool-esptoolpy/esptool/esptool.py" ]; then
-    esptool_cmd=(python3 "$pio_home/packages/tool-esptoolpy/esptool/esptool.py")
+  echo "esptool probe: esptool path is_dir=$( [ -d \"$pio_esptool\" ] && echo yes || echo no ) is_file=$( [ -f \"$pio_esptool\" ] && echo yes || echo no )"
+  echo "esptool probe: esptool.py exists=$( [ -f \"$pio_esptool_py\" ] && echo yes || echo no )"
+
+  if [ -f "$pio_esptool" ] && [ -x "$pio_esptool" ]; then
+    esptool_cmd=("$pio_esptool")
+  elif [ -f "$pio_esptool_py" ]; then
+    esptool_cmd=(python3 "$pio_esptool_py")
   elif command -v esptool >/dev/null 2>&1; then
     esptool_cmd=(esptool)
   elif python3 -m esptool version >/dev/null 2>&1; then
