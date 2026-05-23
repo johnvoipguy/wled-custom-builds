@@ -208,7 +208,7 @@ copy_artifact_file() {
   cp -f "$source_file" "$destination_file"
 
   local rel_path="${destination_file#"$output_dir"/}"
-  if [ -z "${copied_artifact_seen[$rel_path]+x}" ]; then
+  if [ -z "${copied_artifact_seen[$rel_path]+x}" ]; then # first time this destination was copied
     local size_bytes
     size_bytes=$(wc -c < "$destination_file" | tr -d '[:space:]')
     copied_artifacts+=("$rel_path|$size_bytes")
@@ -396,6 +396,7 @@ envs_joined=${envs_joined%,}
 
 python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" "$run_log" "$summary_log" "$output_dir" <<'PY'
 import json
+import os
 import sys
 
 (meta_path, target, tgt_version, wled_ref, base_source, environment,
@@ -416,7 +417,7 @@ payload = {
   "wled_repo": wled_repo,
   "manifest_path": manifest_path,
   "manifest_fallback": manifest_fallback.lower() == "true",
-  "log_dir": run_log.rsplit("/", 1)[0],
+  "log_dir": os.path.dirname(run_log),
   "run_log": run_log,
   "summary_log": summary_log,
   "output_dir": output_dir,
@@ -436,6 +437,7 @@ fi
 printf '\n'
 printf 'Workspace: %s\n' "$workspace"
 
+: > "$run_log"
 exec > >(tee -a "$run_log") 2>&1
 
 echo "==== WLED custom build run ===="
