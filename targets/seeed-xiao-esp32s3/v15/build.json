@@ -1,0 +1,4 @@
+{
+  "environment": "seeed_xiao_esp32s3v2",
+  "wled_ref": "v0.15.4"
+}

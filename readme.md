@@ -44,12 +44,14 @@ manifests/
   build-matrix.yml          ← target/version/env mapping
 scripts/
   apply-target.sh           ← stage target assets (usermods, partitions, env fragment) into a workspace
-  build-target.sh           ← create temp workspace, apply target, run pio build
+  build-target.sh           ← read target manifest, resolve WLED base, apply target, run pio build
   legacy/                   ← old scripts preserved as reference only
+wled_bases/
+  <wled_ref>/               ← optional local WLED base checkouts used before upstream fallback
 targets/
   sp530e/
     shared/                 ← source of truth: partitions, usermods
-    v15/  v16/              ← version deltas / notes
+    v15/  v16/              ← version deltas / notes (+ build.json manifest)
   seeed-xiao-esp32s3/
     shared/
       platformio.env.ini    ← canonical Seeed PlatformIO env definition
@@ -77,15 +79,20 @@ platformio.ini              ← generic WLED base (root = upstream defaults, not
 
 1. Describe target/version combinations in `manifests/build-matrix.yml`.
 2. Keep target-specific config and assets under `targets/<target>/shared/`.
-3. Use `scripts/apply-target.sh` and `scripts/build-target.sh` to stage and build.
+3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`).
+4. Use `scripts/apply-target.sh` and `scripts/build-target.sh` to stage and build.
 
 ```sh
 # Stage Seeed assets into an existing WLED workspace
 scripts/apply-target.sh --target seeed-xiao-esp32s3 --version v16 --workspace /path/to/wled
 
 # Stage + build in a temporary workspace
-scripts/build-target.sh --target seeed-xiao-esp32s3 --version v16 --environment seeed_xiao_esp32s3v2
+scripts/build-target.sh --target seeed-xiao-esp32s3 --version v16
 ```
+
+`scripts/build-target.sh` prefers a local base checkout at `wled_bases/<wled_ref>/`.
+If it does not exist, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` in a temporary workspace.
+Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD-HHMM>/`.
 
 ## Legacy scripts
 

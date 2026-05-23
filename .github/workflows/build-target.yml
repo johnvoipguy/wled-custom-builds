@@ -99,6 +99,23 @@ jobs:
           fi
           bash scripts/build-target.sh "${build_args[@]}"
 
+      - name: Guard generated headers remain unchanged in checkout
+        if: always()
+        run: |
+          if ! git diff --quiet -- wled00/html_*.h wled00/js_*.h; then
+            echo "Generated headers changed in repository checkout. build-target flow must not mutate tracked header outputs."
+            git --no-pager diff -- wled00/html_*.h wled00/js_*.h
+            exit 1
+          fi
+
+      - name: Upload build logs artifact
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ env.TARGET }}-${{ env.VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.build.outputs.log_dir }}
+          if-no-files-found: error
+
       - name: Package firmware artifacts
         id: package
         if: github.event_name != 'pull_request'
