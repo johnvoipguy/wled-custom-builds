@@ -1,4 +1,4 @@
 {
   "environment": "seeed_xiao_esp32s3v2",
-  "wled_ref": "v16.0.0"
+  "wled_ref": "nighly"
 }
