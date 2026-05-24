@@ -374,6 +374,30 @@ jobs:
           path: ${{ steps.package.outputs.artifact_dir }}
           if-no-files-found: error
 
+      - name: Generate release notes
+        id: release_notes
+        if: github.event_name == 'workflow_dispatch' && inputs.create_release
+        run: |
+          notes_file="$RUNNER_TEMP/release-notes-${TARGET}-${VERSION}.md"
+          {
+            echo "## Firmware Release"
+            echo
+            echo "- Target: ${TARGET}"
+            echo "- Version: ${VERSION}"
+            echo "- PlatformIO environment: ${{ steps.build.outputs.environment }}"
+            echo "- Publish suffix: ${{ steps.build.outputs.publish_suffix }}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "## Included Files"
+            while IFS= read -r file_path; do
+              [ -n "$file_path" ] || continue
+              echo "- $(basename \"$file_path\")"
+            done <<< "${{ steps.package.outputs.release_files }}"
+          } > "$notes_file"
+
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+
       - name: Create release
         if: github.event_name == 'workflow_dispatch' && inputs.create_release
         uses: softprops/action-gh-release@v2
@@ -381,7 +405,8 @@ jobs:
           tag_name: ${{ steps.package.outputs.release_tag }}
           name: ${{ steps.package.outputs.release_tag }}
           files: ${{ steps.package.outputs.release_files }}
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes.outputs.notes_file }}
+          generate_release_notes: false
 
       - name: Cleanup temporary workspace
         if: always()
