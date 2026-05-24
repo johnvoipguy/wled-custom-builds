@@ -10,6 +10,39 @@ Upstream WLED is the engine core. Target folders are where board-specific magic 
 
 🔥 Fast builds. 🚀 Intentional releases. 📦 Predictable firmware outputs.
 
+## Users first: get firmware fast
+
+Most people only need three things: where to get binaries, which file to flash, and what to do if it fails.
+
+### 1) Pick your board guide
+
+| Board | User guide | What you get |
+|---|---|---|
+| SP530E (ESP32-C3) | [targets/sp530e/README.md](targets/sp530e/README.md) | Download links, OTA/UART flash, troubleshooting, legacy hard-task pointers |
+| Seeed Xiao ESP32S3 | [targets/seeed-xiao-esp32s3/README.md](targets/seeed-xiao-esp32s3/README.md) | User flashing guide + link to preserved known-good binaries |
+| Waveshare ESP32-S3-ETH | [targets/waveshare-esp32s3-eth/README.md](targets/waveshare-esp32s3-eth/README.md) | User flashing guide + target-specific troubleshooting |
+
+### 2) Get binaries from Releases
+
+- Open Releases: [https://github.com/johnvoipguy/wled-custom-builds/releases](https://github.com/johnvoipguy/wled-custom-builds/releases)
+- Download the file for your board from release assets.
+- File meanings:
+  - `.app.bin` = OTA update for already-running WLED
+  - `.full.bin` = first-time USB/UART flash (bootloader + partitions + app)
+
+### 3) Quick flash rules
+
+- If WLED is already installed and healthy: use `.app.bin` via Manual OTA.
+- If board is new, bricked, or partition layout changed: use `.full.bin` over UART.
+
+### Troubleshooting quick hits
+
+- OTA rejected or fails to boot: flash the matching `.full.bin` over UART.
+- Wrong board behavior (pins/network/features): verify you downloaded the correct target asset.
+- No release asset yet: use workflow artifacts from the latest successful run while waiting for release promotion.
+
+## Maintainer runway (build + release internals)
+
 ## Launch in 60 seconds
 
 If you want fast results with zero wandering, run this sequence like a launch checklist:
