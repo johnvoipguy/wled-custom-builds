@@ -397,6 +397,13 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.create_release) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release'))
         run: |
           notes_file="$RUNNER_TEMP/release-notes-${TARGET}-${VERSION}.md"
+          release_version="${{ steps.build.outputs.wled_ref }}"
+          if [ -z "$release_version" ]; then
+            release_version="${{ matrix.wled_ref }}"
+          fi
+          if [ -z "$release_version" ]; then
+            release_version="$VERSION"
+          fi
           release_kind="stable"
           if [[ "${{ (github.event_name == 'workflow_dispatch' && inputs.legacy_release) || (github.event_name == 'push' && contains(github.event.head_commit.message, 'legacy')) }}" == "true" ]]; then
             release_kind="legacy"
@@ -405,7 +412,8 @@ jobs:
             echo "## Firmware Release"
             echo
             echo "- Target: ${TARGET}"
-            echo "- Version: ${VERSION}"
+            echo "- Version: ${release_version}"
+            echo "- Version directory: ${VERSION}"
             echo "- PlatformIO environment: ${{ steps.build.outputs.environment }}"
             echo "- Publish suffix: ${{ steps.build.outputs.publish_suffix }}"
             echo "- Release kind: ${release_kind}"
