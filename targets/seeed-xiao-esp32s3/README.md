@@ -1,4 +1,4 @@
-# Seeed Xiao ESP32S3 firmware guide (user focused)
+# Seeed Xiao ESP32S3 firmware guide
 
 This page is the quick user entrypoint for Seeed Xiao ESP32S3 firmware in this repo.
 

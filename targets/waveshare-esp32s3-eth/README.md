@@ -1,4 +1,4 @@
-# Waveshare ESP32-S3-ETH firmware guide (user focused)
+# Waveshare ESP32-S3-ETH firmware guide
 
 This page is the quick user entrypoint for Waveshare ESP32-S3-ETH firmware in this repo.
 
