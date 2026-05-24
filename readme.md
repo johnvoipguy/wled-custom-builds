@@ -1,22 +1,30 @@
-# WLED Custom Builds
+# WLED Custom Builds Mission Control
 
-This repo is the build and release control layer for custom WLED targets.
-Upstream WLED is the base. Target folders define what changes per board and version.
+Welcome to the launchpad.
+This repo is the build-and-release cockpit for custom WLED targets.
+Upstream WLED is the engine core. Target folders are where board-specific magic happens.
 
-## Build now
+## Launch in 60 seconds
 
-If you just want to build quickly, this is the shortest path:
+If you want fast results with zero wandering, run this sequence like a launch checklist:
 
 1. Update files under `targets/<target>/shared/` and/or `targets/<target>/<version>/`.
 2. Build locally with `scripts/build-target.sh --target <target> --version <version>`.
 3. Push changes to trigger CI artifacts.
 4. Include `release` in the push commit message only when you want a GitHub Release.
 
-Common commit message intent:
+Commit message intent:
 
-- Build only: `sp530e v0.15.4 config update`
-- Build and release: `sp530e v0.15.4 release`
-- Build and legacy release: `sp530e v0.15.4 release legacy`
+- Ignition only (build artifacts): `sp530e v0.15.4 config update`
+- Liftoff (build + release): `sp530e v0.15.4 release`
+- Time-capsule liftoff (legacy prerelease): `sp530e v0.15.4 release legacy`
+
+Quick mental model:
+- No `release` token = build artifacts only.
+- `release` token = publish release.
+- `release legacy` token = publish as legacy prerelease (not latest).
+
+If you remember one thing: type `release` only when you want fireworks on the Releases page.
 
 ## Repository layering model
 
@@ -53,6 +61,14 @@ Common commit message intent:
   These represent tested/regression-validated firmware and are kept to avoid losing that work.
 
 In short: commit source and intent, not build byproducts.
+
+## Guardrails that save your weekend
+
+- Keep target-specific files inside `targets/<target>/...`.
+- Keep root files generic and reusable.
+- Keep generated outputs out of git (unless explicitly preserved legacy firmware).
+- Keep releases intentional by using commit-message tokens.
+- If a change feels random, it probably belongs in notes, not in source-of-truth config.
 
 ## Directory layout
 
@@ -121,9 +137,9 @@ outputs/
 3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`).
 4. Use `scripts/build-target.sh` locally, and `.github/workflows/build-target.yml` for CI build/release.
 
-## CI and release behavior
+## CI and release behavior (the fireworks panel)
 
-Primary automation now lives in `.github/workflows/build-target.yml`.
+Primary automation lives in `.github/workflows/build-target.yml`.
 
 - Push/PR auto-build triggers are intentionally narrow and only run for:
   - `targets/**`
@@ -133,7 +149,9 @@ Primary automation now lives in `.github/workflows/build-target.yml`.
 
 ### Push-to-release token gate
 
-Pushes to `main` can create releases when the commit message contains the token `release`.
+Pushes to `main` can create releases when the commit message contains `release`.
+
+No token, no boom. Token, boom.
 
 - Example (creates release): `git commit -m "sp530e v0.15.4 release"`
 - Example (build only): `git commit -m "sp530e v0.15.4 config cleanup"`
@@ -148,6 +166,8 @@ or by setting `legacy_release=true` in manual dispatch.
 
 Releases from `build-target.yml` use target-scoped custom notes (not repo-wide auto-generated notes),
 including target, version, environment, publish suffix, commit, run URL, and attached files.
+
+That means each release tells the story of exactly one target build, not a random dump of unrelated repo changes.
 
 ### Published firmware naming
 
