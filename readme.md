@@ -1,6 +1,22 @@
 # WLED Custom Builds
 
-This repository is a neutral, multi-target home for custom WLED build metadata on top of upstream `main`.
+This repo is the build and release control layer for custom WLED targets.
+Upstream WLED is the base. Target folders define what changes per board and version.
+
+## Build now
+
+If you just want to build quickly, this is the shortest path:
+
+1. Update files under `targets/<target>/shared/` and/or `targets/<target>/<version>/`.
+2. Build locally with `scripts/build-target.sh --target <target> --version <version>`.
+3. Push changes to trigger CI artifacts.
+4. Include `release` in the push commit message only when you want a GitHub Release.
+
+Common commit message intent:
+
+- Build only: `sp530e v0.15.4 config update`
+- Build and release: `sp530e v0.15.4 release`
+- Build and legacy release: `sp530e v0.15.4 release legacy`
 
 ## Repository layering model
 
@@ -17,15 +33,14 @@ This repository is a neutral, multi-target home for custom WLED build metadata o
 
 ## Target highlights
 
-- **Seeed Xiao ESP32S3:** canonical PlatformIO env and build metadata live in
-  `targets/seeed-xiao-esp32s3/shared/platformio.env.ini`. Version notes under
-  `v15/` and `v16/` are deltas only. **All Seeed preserved firmware is v16** —
-  validated historical binaries live in `targets/seeed-xiao-esp32s3/v16/assets/legacy/`.
-- **Waveshare ESP32-S3-ETH:** W5500 SPI Ethernet support is documented in
-  `targets/waveshare-esp32s3-eth/shared/platformio.env.ini` and
-  `targets/waveshare-esp32s3-eth/v15/notes.md`. **v15 is the active Waveshare line**.
-- **SP530E:** salvaged partition CSV and LED status usermods live in
-  `targets/sp530e/shared/`.
+- **Seeed Xiao ESP32S3**
+  - Canonical env: `targets/seeed-xiao-esp32s3/shared/platformio.env.ini`
+  - Preserved legacy firmware: `targets/seeed-xiao-esp32s3/v16/assets/legacy/`
+- **Waveshare ESP32-S3-ETH**
+  - Canonical env: `targets/waveshare-esp32s3-eth/shared/platformio.env.ini`
+  - Active line notes: `targets/waveshare-esp32s3-eth/v15/notes.md`
+- **SP530E**
+  - Shared target assets: `targets/sp530e/shared/`
 
 ## Repository direction
 
@@ -36,6 +51,8 @@ This repository is a neutral, multi-target home for custom WLED build metadata o
 - **Exception:** intentionally preserved, validated historical firmware binaries may be committed
   under `targets/<target>/v<N>/assets/legacy/` with a clear README explaining their provenance.
   These represent tested/regression-validated firmware and are kept to avoid losing that work.
+
+In short: commit source and intent, not build byproducts.
 
 ## Directory layout
 
@@ -99,10 +116,47 @@ outputs/
 
 ## Starter workflow
 
-1. Describe target/version combinations in `manifests/build-matrix.yml`.
-2. Keep target-specific config and assets under `targets/<target>/shared/`.
-3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`), or rely on `targets/<target>/shared/build.default.json` as fallback.
-4. Use `scripts/apply-target.sh` and `scripts/build-target.sh` to stage and build.
+1. Keep target-specific config and assets under `targets/<target>/shared/`.
+2. Add version-specific deltas under `targets/<target>/<version>/`.
+3. Set `targets/<target>/<version>/build.json` (`environment`, `wled_ref`, optional `wled_repo`).
+4. Use `scripts/build-target.sh` locally, and `.github/workflows/build-target.yml` for CI build/release.
+
+## CI and release behavior
+
+Primary automation now lives in `.github/workflows/build-target.yml`.
+
+- Push/PR auto-build triggers are intentionally narrow and only run for:
+  - `targets/**`
+  - `.github/workflows/build-target.yml`
+- Push/PR runs build and upload workflow artifacts; they do not create releases by default.
+- Manual `workflow_dispatch` can create a release when `create_release=true`.
+
+### Push-to-release token gate
+
+Pushes to `main` can create releases when the commit message contains the token `release`.
+
+- Example (creates release): `git commit -m "sp530e v0.15.4 release"`
+- Example (build only): `git commit -m "sp530e v0.15.4 config cleanup"`
+
+Legacy release intent can be signaled by including `legacy` in the push commit message,
+or by setting `legacy_release=true` in manual dispatch.
+
+- Legacy releases are marked as prerelease and not latest.
+- Stable releases are marked latest.
+
+### Release notes scope
+
+Releases from `build-target.yml` use target-scoped custom notes (not repo-wide auto-generated notes),
+including target, version, environment, publish suffix, commit, run URL, and attached files.
+
+### Published firmware naming
+
+Published artifact/release filenames are normalized to:
+
+- `wled-<version>-<target>-<publish_suffix>.app.bin`
+- `wled-<version>-<target>-<publish_suffix>.full.bin`
+
+`publish_suffix` comes from manifest `publish_suffix` (fallback `tag`, then `default`).
 
 ```sh
 # Stage Seeed assets into an existing WLED workspace (overlay mode: v16/ dir exists)
