@@ -282,9 +282,11 @@ jobs:
           workspace="${{ steps.build.outputs.workspace }}"
           environment="${{ steps.build.outputs.environment }}"
           build_dir="${{ steps.build.outputs.build_dir }}"
+          output_dir="${{ steps.build.outputs.output_dir }}"
 
           [ -d "$workspace" ] || { echo "Missing workspace: $workspace"; exit 1; }
           [ -d "$build_dir" ] || { echo "Missing build directory: $build_dir"; exit 1; }
+          [ -d "$output_dir" ] || { echo "Missing output directory: $output_dir"; exit 1; }
 
           artifact_name="firmware-${TARGET}-${VERSION}-${environment}"
           artifact_dir="$RUNNER_TEMP/$artifact_name"
@@ -295,6 +297,35 @@ jobs:
               cp "$build_dir/$file" "$artifact_dir/"
             fi
           done
+
+          release_dir="$output_dir/release"
+          if [ -d "$release_dir" ]; then
+            shopt -s nullglob
+            app_bins=("$release_dir"/*.bin)
+            shopt -u nullglob
+
+            app_bin=""
+            full_bin=""
+            for candidate in "${app_bins[@]}"; do
+              base_name="$(basename "$candidate")"
+              if [[ "$base_name" == *.full.bin ]]; then
+                if [ -z "$full_bin" ]; then
+                  full_bin="$candidate"
+                fi
+              else
+                if [ -z "$app_bin" ]; then
+                  app_bin="$candidate"
+                fi
+              fi
+            done
+
+            if [ -n "$app_bin" ]; then
+              cp "$app_bin" "$artifact_dir/wled-${VERSION}-${TARGET}.app.bin"
+            fi
+            if [ -n "$full_bin" ]; then
+              cp "$full_bin" "$artifact_dir/wled-${VERSION}-${TARGET}.full.bin"
+            fi
+          fi
 
           [ -f "$artifact_dir/firmware.bin" ] || { echo "firmware.bin was not produced in $build_dir"; exit 1; }
 
@@ -315,6 +346,11 @@ jobs:
 
           release_files=()
           for file in firmware.bin bootloader.bin partitions.bin build-metadata.txt; do
+            if [ -f "$artifact_dir/$file" ]; then
+              release_files+=("$artifact_dir/$file")
+            fi
+          done
+          for file in "wled-${VERSION}-${TARGET}.app.bin" "wled-${VERSION}-${TARGET}.full.bin"; do
             if [ -f "$artifact_dir/$file" ]; then
               release_files+=("$artifact_dir/$file")
             fi
