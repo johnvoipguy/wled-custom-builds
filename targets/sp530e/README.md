@@ -54,6 +54,15 @@ Use these pointers when you need old branch/hard-task procedures:
 
 - SP530E v0.15.4 notes in this repo: [v0.15.4 notes](v0.15.4/notes.md)
 - Historical package/apply flow (archived): https://github.com/johnvoipguy/wled-sp530e-mods/tree/main/sp530e_config_package
+- Step-by-step legacy hard tasks: [targets/sp530e/LEGACY-HARD-TASKS.md](LEGACY-HARD-TASKS.md)
+
+## Physical hacking photo examples
+
+These images were restored from the historical `seeed-xiao` branch archive and kept here for SP530E hardware guidance.
+
+<img src="../../images/Front_lights.jpg" width="285" height="245"> <img src="../../images/back_no_wiring.jpg" width="324" height="324">
+
+<img src="../../images/back_wiring.jpg" width="250" height="250"> <img src="../../images/Back_wiring_2.jpg" width="250" height="250"> <img src="../../images/uart_connection.jpg" width="250" height="250">
 
 ## Source-of-truth config paths
 
