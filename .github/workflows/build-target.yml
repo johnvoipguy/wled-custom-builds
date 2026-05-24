@@ -281,12 +281,17 @@ jobs:
         run: |
           workspace="${{ steps.build.outputs.workspace }}"
           environment="${{ steps.build.outputs.environment }}"
+          publish_suffix="${{ steps.build.outputs.publish_suffix }}"
           build_dir="${{ steps.build.outputs.build_dir }}"
           output_dir="${{ steps.build.outputs.output_dir }}"
 
           [ -d "$workspace" ] || { echo "Missing workspace: $workspace"; exit 1; }
           [ -d "$build_dir" ] || { echo "Missing build directory: $build_dir"; exit 1; }
           [ -d "$output_dir" ] || { echo "Missing output directory: $output_dir"; exit 1; }
+
+          if [ -z "$publish_suffix" ]; then
+            publish_suffix="default"
+          fi
 
           artifact_name="firmware-${TARGET}-${VERSION}-${environment}"
           artifact_dir="$RUNNER_TEMP/$artifact_name"
@@ -320,17 +325,17 @@ jobs:
             done
 
             if [ -n "$app_bin" ]; then
-              cp "$app_bin" "$artifact_dir/wled-${VERSION}-${TARGET}.app.bin"
+              cp "$app_bin" "$artifact_dir/wled-${VERSION}-${TARGET}-${publish_suffix}.app.bin"
             fi
             if [ -n "$full_bin" ]; then
-              cp "$full_bin" "$artifact_dir/wled-${VERSION}-${TARGET}.full.bin"
+              cp "$full_bin" "$artifact_dir/wled-${VERSION}-${TARGET}-${publish_suffix}.full.bin"
             fi
           fi
 
           [ -f "$artifact_dir/firmware.bin" ] || { echo "firmware.bin was not produced in $build_dir"; exit 1; }
 
-          printf 'target=%s\nversion=%s\nenvironment=%s\nbuild_dir=%s\n' \
-            "$TARGET" "$VERSION" "$environment" "$build_dir" > "$artifact_dir/build-metadata.txt"
+          printf 'target=%s\nversion=%s\nenvironment=%s\npublish_suffix=%s\nbuild_dir=%s\n' \
+            "$TARGET" "$VERSION" "$environment" "$publish_suffix" "$build_dir" > "$artifact_dir/build-metadata.txt"
 
           if [ -n "$RELEASE_TAG_INPUT" ]; then
             release_tag="$RELEASE_TAG_INPUT"
@@ -350,7 +355,7 @@ jobs:
               release_files+=("$artifact_dir/$file")
             fi
           done
-          for file in "wled-${VERSION}-${TARGET}.app.bin" "wled-${VERSION}-${TARGET}.full.bin"; do
+          for file in "wled-${VERSION}-${TARGET}-${publish_suffix}.app.bin" "wled-${VERSION}-${TARGET}-${publish_suffix}.full.bin"; do
             if [ -f "$artifact_dir/$file" ]; then
               release_files+=("$artifact_dir/$file")
             fi

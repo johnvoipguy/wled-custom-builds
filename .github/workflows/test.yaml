@@ -3,6 +3,7 @@ on:
 
 jobs:
   dispatch:
+    if: false # Disabled: use build-target.yml only
     runs-on: ubuntu-latest
     steps:
       - name: Repository Dispatch

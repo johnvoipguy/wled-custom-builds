@@ -1,11 +1,9 @@
 name: WLED CI
 
 on:
-  push:
-    branches:
-      - '**'
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   wled_build:
+    if: false # Disabled: use build-target.yml only
     uses: ./.github/workflows/build.yml

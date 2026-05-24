@@ -169,6 +169,7 @@ meta_json=
 repo_sha=
 timestamp_utc=
 output_dir=
+publish_suffix=
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -473,6 +474,20 @@ if [ -z "$wled_repo" ]; then
   wled_repo=$default_wled_repo
 fi
 
+# Publish suffix resolution (manifest -> default). This is user-facing naming metadata,
+# separate from PlatformIO environment names.
+if [ -n "$manifest_path" ]; then
+  publish_suffix=$(json_get_value "$manifest_path" "publish_suffix")
+  if [ -z "$publish_suffix" ]; then
+    publish_suffix=$(json_get_value "$manifest_path" "tag")
+  fi
+fi
+if [ -z "$publish_suffix" ]; then
+  publish_suffix="default"
+fi
+publish_suffix=$(printf '%s' "$publish_suffix" | tr '[:upper:] _' '[:lower:]-' | sed -E 's/[^a-z0-9-]+/-/g; s/-+/-/g; s/^-+//; s/-+$//')
+[ -n "$publish_suffix" ] || publish_suffix="default"
+
 cleanup() {
   local status=$?
   if [ -n "$workspace" ] && [ "$keep_workspace" = false ] && [[ "$workspace" == /tmp/* ]]; then
@@ -540,16 +555,17 @@ set_github_output "meta_json" "$meta_json"
 set_github_output "output_dir" "$output_dir"
 set_github_output "manifest_path" "$manifest_path"
 set_github_output "manifest_fallback" "$manifest_fallback"
+set_github_output "publish_suffix" "$publish_suffix"
 
 envs_joined=$(printf '%s,' "${resolved_envs[@]}")
 envs_joined=${envs_joined%,}
 
-python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" "$run_log" "$summary_log" "$output_dir" <<'PY'
+python - "$meta_json" "$target" "$version" "$wled_ref" "$base_source" "$environment" "$publish_suffix" "$repo_sha" "$timestamp_utc" "$wled_repo" "$manifest_path" "$manifest_fallback" "$version_is_overlay" "$envs_joined" "$run_log" "$summary_log" "$output_dir" <<'PY'
 import json
 import os
 import sys
 
-(meta_path, target, tgt_version, wled_ref, base_source, environment,
+(meta_path, target, tgt_version, wled_ref, base_source, environment, publish_suffix,
  repo_sha, timestamp, wled_repo, manifest_path, manifest_fallback,
  version_is_overlay, envs_joined, run_log, summary_log, output_dir) = sys.argv[1:]
 environments = [e for e in envs_joined.split(',') if e]
@@ -559,6 +575,7 @@ payload = {
   "wled_ref": wled_ref,
   "base_source": base_source,
   "environment": environment,
+  "publish_suffix": publish_suffix,
   "environments": environments,
   "multi_env": len(environments) > 1,
   "version_mode": "overlay" if version_is_overlay.lower() == "true" else "wled-ref",
@@ -596,6 +613,7 @@ echo "Version: $version"
 echo "Version mode: $( [ "$version_is_overlay" = true ] && echo "overlay" || echo "wled-ref" )"
 echo "WLED ref: $wled_ref"
 echo "WLED source: $base_source ($wled_repo)"
+echo "Publish suffix: $publish_suffix"
 echo "Workspace: $workspace"
 echo "Log directory: $log_dir"
 echo "Run log: $run_log"
@@ -635,6 +653,7 @@ done
   echo "wled_ref: $wled_ref"
   echo "base_source: $base_source"
   echo "wled_repo: $wled_repo"
+  echo "publish_suffix: $publish_suffix"
   echo "environments: ${resolved_envs[*]}"
   echo "log_dir: $log_dir"
   echo "run_log: $run_log"
