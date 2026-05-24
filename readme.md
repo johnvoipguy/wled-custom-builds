@@ -4,6 +4,12 @@ Welcome to the launchpad.
 This repo is the build-and-release cockpit for custom WLED targets.
 Upstream WLED is the engine core. Target folders are where board-specific magic happens.
 
+![Build Matrix](https://img.shields.io/badge/Build-Matrix-blue?style=for-the-badge&logo=githubactions&logoColor=white)
+![Release Tokens](https://img.shields.io/badge/Release-Token%20Gated-orange?style=for-the-badge&logo=rocket&logoColor=white)
+![Artifacts](https://img.shields.io/badge/Firmware-App%20%2B%20Full-success?style=for-the-badge&logo=esphome&logoColor=white)
+
+🔥 Fast builds. 🚀 Intentional releases. 📦 Predictable firmware outputs.
+
 ## Launch in 60 seconds
 
 If you want fast results with zero wandering, run this sequence like a launch checklist:
@@ -218,10 +224,23 @@ When parsing the env fragment:
 
 To always use a known single environment, pass `--environment` explicitly or set it in the manifest.
 
-`scripts/build-target.sh` prefers a local base checkout at `wled_bases/<wled_ref>/`.
-If it does not exist, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` in a temporary workspace.
-When version-specific `targets/<target>/<version>/build.json` is missing, it automatically falls back to `targets/<target>/shared/build.default.json`.
-`scripts/apply-target.sh` also ensures copied `platformio.env.ini` is included from workspace `platformio.ini` via `[platformio] extra_configs` so custom env names are recognized in upstream workspaces.
+### Base checkout strategy 🚀
+
+- `scripts/build-target.sh` first looks for a local base checkout at `wled_bases/<wled_ref>/`.
+- If not found, it fetches upstream (`wled_repo`, default `https://github.com/Aircoookie/WLED.git`) at `wled_ref` into a temporary workspace.
+
+### Manifest fallback logic 📦
+
+- If `targets/<target>/<version>/build.json` exists, it is used for version-specific settings.
+- If it is missing, the script automatically falls back to `targets/<target>/shared/build.default.json`.
+
+### PlatformIO env bridge 🔗
+
+- `scripts/apply-target.sh` makes sure copied `platformio.env.ini` is included from workspace `platformio.ini` through `[platformio] extra_configs`.
+- This ensures custom env names are recognized in upstream workspaces.
+
+### Run logs and metadata trail 🧾
+
 Each run writes dated logs/metadata under `logs/<target>/<version>/<YYYYMMDD>/`:
 - `run-<HHMMSS>.log` — consolidated run output (`apply-target`, `npm`, and all `pio` environments)
 - `summary-<HHMMSS>.txt` — end-of-run summary including metadata, paths, and copied artifacts
