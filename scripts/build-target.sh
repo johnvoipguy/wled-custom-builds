@@ -128,6 +128,7 @@ detect_chip_from_env() {
   elif [[ "$lower_env" == *"esp32s2"* ]]; then echo "esp32s2"
   elif [[ "$lower_env" == *"esp32h2"* ]]; then echo "esp32h2"
   elif [[ "$lower_env" == *"esp8266"* ]] || [[ "$lower_env" == *"nodemcu"* ]]; then echo "esp8266"
+  elif [[ "$lower_env" == *"sp530e"* ]]; then echo "esp32c3"
   else echo "esp32"
   fi
 }
