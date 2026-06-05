@@ -27,7 +27,22 @@ You need to solder wires to these points on the SP530E board:
 <img src="../../images/back_wiring.jpg" width="250" height="250"> <img src="../../images/Back_wiring_2.jpg" width="250" height="250"> <img src="../../images/uart_connection.jpg" width="250" height="250">
 
 **You'll know you did correctly, if after applying power and removing GPIO9 from GND if there are no lights on the front.**
-
+### ESP32-C3 Optimizations
+- **4MB Flash Support**: Optimized memory layout for ESP32-C3
+- **GPIO Mapping**: Correct pin assignments for SP530E hardware
+  - **On Board Button**: GPIO 8
+  - **On Board Mic**: GPIO 3
+  - **On Board Blue LED**: GPIO 0 (Inverted)
+  - **On Board Green LED**: GPIO 1 (Inverted)
+  - **LED Data Output**: GPIO 19
+  - **Analog Pins**:
+    - R: GPIO 10
+    - G: GPIO 7
+    - B: GPIO 6
+    - WW: GPIO 5
+    - CW: GPIO 4
+- **Performance Tuning**: ESP32-C3 specific optimizations
+- 
 You can test connectivity by running:
 
 ```bash
