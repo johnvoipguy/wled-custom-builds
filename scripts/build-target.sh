@@ -117,8 +117,54 @@ print(f"{value:.2f} {unit}" if unit != "B" else f"{int(value)} {unit}")
 PY
 }
 
-# Detect ESP chip type from PlatformIO environment name
-detect_chip_from_env() {
+# Detect ESP chip type from a specific PlatformIO environment section.
+detect_chip_from_ini_section() {
+  local ini_file=$1
+  local env_name=$2
+  python3 - "$ini_file" "$env_name" <<'PY'
+import configparser
+import re
+import sys
+
+ini_file, env_name = sys.argv[1], sys.argv[2]
+section_name = f"env:{env_name}"
+
+parser = configparser.ConfigParser(interpolation=None, strict=False)
+parser.optionxform = str
+
+try:
+  with open(ini_file, encoding="utf-8") as fp:
+    parser.read_file(fp)
+except OSError:
+  sys.exit(1)
+
+if not parser.has_section(section_name):
+  sys.exit(1)
+
+section = parser[section_name]
+parts = []
+for key in ("extends", "platform", "board", "board_build.mcu", "board_mcu", "build_flags"):
+  value = section.get(key, "")
+  if value:
+    parts.append(value)
+
+normalized = re.sub(r"[^a-z0-9]+", "", " ".join(parts).lower())
+
+if "espressif8266" in normalized or "esp8266" in normalized or "nodemcu" in normalized:
+  print("esp8266")
+  sys.exit(0)
+
+for chip in ("esp32s3", "esp32c3", "esp32c6", "esp32s2", "esp32h2", "esp32p4", "esp32"):
+  if chip in normalized:
+    print(chip)
+    sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
+# Fallback for environments whose config cannot be queried.
+detect_chip_from_env_name() {
   local env_name=$1
   local lower_env
   lower_env=$(printf '%s' "$env_name" | tr '[:upper:]' '[:lower:]')
@@ -170,6 +216,7 @@ repo_sha=
 timestamp_utc=
 output_dir=
 publish_suffix=
+env_ini_path=
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -350,7 +397,16 @@ merge_full_image_for_env() {
   local full_bin_path="$release_output_dir/${release_name}.full.bin"
 
   local chip
-  chip=$(detect_chip_from_env "$env_name")
+  local workspace_ini="$workspace/platformio.ini"
+  if [ -n "$env_ini_path" ] && [ -f "$env_ini_path" ]; then
+    chip=$(detect_chip_from_ini_section "$env_ini_path" "$env_name" || true)
+  fi
+  if [ -z "$chip" ] && [ -f "$workspace_ini" ]; then
+    chip=$(detect_chip_from_ini_section "$workspace_ini" "$env_name" || true)
+  fi
+  if [ -z "$chip" ]; then
+    chip=$(detect_chip_from_env_name "$env_name")
+  fi
   local bootloader_offset
   bootloader_offset=$(bootloader_offset_for_chip "$chip")
 
@@ -446,6 +502,8 @@ else
   fi
 fi
 [ "${#resolved_envs[@]}" -gt 0 ] || die "Could not determine build environment for target '$target'. Pass --environment or set 'environment' in the manifest or provide target env config in targets/$target/shared/platformio.env.ini or targets/$target/shared/platformio-env.ini."
+
+env_ini_path=$(resolve_env_ini_path "$target" || true)
 
 environment=${resolved_envs[0]}
 if [ "${#resolved_envs[@]}" -gt 1 ]; then
