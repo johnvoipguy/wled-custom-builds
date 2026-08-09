@@ -85,15 +85,30 @@ esptool -p PORT erase-flash
 Example with esptool for ESP32-C3:
 
 ```sh
-esptool.py --chip esp32c3 write_flash 0x0000 wled-<version>-sp530e-<suffix>.full.bin
+esptool.py --chip esp32c3 --flash-mode dio write_flash 0x0000 wled-<version>-sp530e-<suffix>.full.bin
 ```
 
 If your setup needs an explicit port, add `--port <port>`.
+
+> **Note:** The SP530E uses a 4 MB embedded XMC flash that requires DIO mode. Always pass
+> `--flash-mode dio` when writing the `.full.bin` image. Omitting it may cause the bootloader
+> to initialise the flash in QIO mode and produce a continuous boot loop with
+> `invalid header` errors on the serial console.
 
 ## Troubleshooting
 
 - Device does not boot after OTA:
   - Flash `.full.bin` over UART.
+- **Boot loop / `invalid header` after flashing `.full.bin`:**
+  - The SP530E's embedded XMC flash requires DIO mode. Older released binaries were
+    built without this flag, causing the bootloader to start in QIO mode and read
+    garbage, which appears as `invalid header: 0x...` on the serial console.
+  - **Fix:** Re-flash with `--flash-mode dio` explicitly:
+    ```sh
+    esptool.py --chip esp32c3 --flash-mode dio write_flash 0x0000 wled-<version>-sp530e-<suffix>.full.bin
+    ```
+  - Binaries built from this repository after the PR #44 fix embed DIO mode in the
+    binary header automatically, so flashing them without `--flash-mode dio` also works.
 - Build flashes but hardware behavior is wrong:
   - Confirm you used SP530E target assets (not another board).
 - Flash command fails with chip/connection errors:
