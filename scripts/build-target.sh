@@ -187,6 +187,39 @@ bootloader_offset_for_chip() {
   esac
 }
 
+# Detect board_build.flash_mode from a specific PlatformIO environment section.
+detect_flash_mode_from_ini_section() {
+  local ini_file=$1
+  local env_name=$2
+  python3 - "$ini_file" "$env_name" <<'PY'
+import configparser
+import sys
+
+ini_file, env_name = sys.argv[1], sys.argv[2]
+section_name = f"env:{env_name}"
+
+parser = configparser.ConfigParser(interpolation=None, strict=False)
+parser.optionxform = str
+
+try:
+  with open(ini_file, encoding="utf-8") as fp:
+    parser.read_file(fp)
+except OSError:
+  sys.exit(1)
+
+if not parser.has_section(section_name):
+  sys.exit(1)
+
+section = parser[section_name]
+flash_mode = section.get("board_build.flash_mode", "").strip()
+if flash_mode in ("dio", "qio", "dout", "qout"):
+  print(flash_mode)
+  sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
 target=
 version=
 environment=
@@ -410,6 +443,14 @@ merge_full_image_for_env() {
   local bootloader_offset
   bootloader_offset=$(bootloader_offset_for_chip "$chip")
 
+  local flash_mode=""
+  if [ -n "$env_ini_path" ] && [ -f "$env_ini_path" ]; then
+    flash_mode=$(detect_flash_mode_from_ini_section "$env_ini_path" "$env_name" || true)
+  fi
+  if [ -z "$flash_mode" ] && [ -f "$workspace_ini" ]; then
+    flash_mode=$(detect_flash_mode_from_ini_section "$workspace_ini" "$env_name" || true)
+  fi
+
   # Locate esptool (prefer executable form). Resolution order:
   #  1) PlatformIO tool package executable: ~/.platformio/packages/tool-esptoolpy/esptool
   #  2) PlatformIO tool package directory: ~/.platformio/packages/tool-esptoolpy/esptool/esptool.py
@@ -436,16 +477,23 @@ merge_full_image_for_env() {
   fi
 
   echo "Generating merged full image: $full_bin_path"
-  echo "  chip=$chip  bootloader_offset=$bootloader_offset"
-  echo "  cmd: ${esptool_cmd[*]} --chip $chip merge-bin -o \"$full_bin_path\" $bootloader_offset \"$bootloader_bin\" 0x8000 \"$partitions_bin\" 0x10000 \"$firmware_bin\""
+  echo "  chip=$chip  bootloader_offset=$bootloader_offset  flash_mode=${flash_mode:-<from bootloader>}"
+  echo "  cmd: ${esptool_cmd[*]} --chip $chip merge-bin -o \"$full_bin_path\"${flash_mode:+ --flash-mode $flash_mode} $bootloader_offset \"$bootloader_bin\" 0x8000 \"$partitions_bin\" 0x10000 \"$firmware_bin\""
 
   # Standard WLED/ESP32 flash offsets: partitions at 0x8000, app at 0x10000.
   # Bootloader offset varies by chip (see bootloader_offset_for_chip).
-  "${esptool_cmd[@]}" --chip "$chip" merge-bin \
-    -o "$full_bin_path" \
-    "$bootloader_offset" "$bootloader_bin" \
-    0x8000              "$partitions_bin"  \
-    0x10000             "$firmware_bin"    \
+  # Flash mode is read from board_build.flash_mode in the environment ini when present,
+  # otherwise esptool inherits the mode from the bootloader binary header.
+  local merge_bin_args=(-o "$full_bin_path")
+  if [ -n "$flash_mode" ]; then
+    merge_bin_args+=(--flash-mode "$flash_mode")
+  fi
+  merge_bin_args+=(
+    "$bootloader_offset" "$bootloader_bin"
+    0x8000              "$partitions_bin"
+    0x10000             "$firmware_bin"
+  )
+  "${esptool_cmd[@]}" --chip "$chip" merge-bin "${merge_bin_args[@]}" \
     || die "merge_full_image ($env_name): esptool merge-bin failed"
 
   register_artifact_path "$full_bin_path"
