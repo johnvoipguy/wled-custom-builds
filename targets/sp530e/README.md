@@ -85,30 +85,33 @@ esptool -p PORT erase-flash
 Example with esptool for ESP32-C3:
 
 ```sh
-esptool.py --chip esp32c3 --flash-mode dio write_flash 0x0000 wled-<version>-sp530e-<suffix>.full.bin
+esptool.py --chip esp32c3 --flash-mode dio write_flash --encrypt 0x0000 wled-<version>-sp530e-<suffix>.full.bin
 ```
 
 If your setup needs an explicit port, add `--port <port>`.
 
-> **Note:** The SP530E uses a 4 MB embedded XMC flash that requires DIO mode. Always pass
-> `--flash-mode dio` when writing the `.full.bin` image. Omitting it may cause the bootloader
-> to initialise the flash in QIO mode and produce a continuous boot loop with
-> `invalid header` errors on the serial console.
+> **Note:** The SP530E ships with Flash Encryption enabled in hardware (factory eFuse).
+> The `--encrypt` flag is required to use the encrypted UART download path so that the
+> ESP32-C3 hardware encrypts the data as it is written to flash — without it the bootloader
+> cannot read the application and loops with `invalid header` errors. `--flash-mode dio` is
+> also required because the 4 MB embedded XMC flash on ESP32-C3 uses DIO mode; using the
+> default QIO produces the same `invalid header` symptom.
 
 ## Troubleshooting
 
 - Device does not boot after OTA:
   - Flash `.full.bin` over UART.
 - **Boot loop / `invalid header` after flashing `.full.bin`:**
-  - The SP530E's embedded XMC flash requires DIO mode. Older released binaries were
-    built without this flag, causing the bootloader to start in QIO mode and read
-    garbage, which appears as `invalid header: 0x...` on the serial console.
-  - **Fix:** Re-flash with `--flash-mode dio` explicitly:
+  - The SP530E has Flash Encryption enabled in hardware (factory eFuse). Flashing
+    without `--encrypt` means the data is transferred unencrypted over UART; the
+    ESP32-C3 hardware therefore writes an unencrypted image to flash and the
+    bootloader cannot read it, producing `invalid header: 0x...` on the serial console.
+  - The 4 MB embedded XMC flash also requires DIO mode; using the default QIO produces
+    the same symptom.
+  - **Fix:** Re-flash using both `--flash-mode dio` and `--encrypt`:
     ```sh
-    esptool.py --chip esp32c3 --flash-mode dio write_flash 0x0000 wled-<version>-sp530e-<suffix>.full.bin
+    esptool.py --chip esp32c3 --flash-mode dio write_flash --encrypt 0x0000 wled-<version>-sp530e-<suffix>.full.bin
     ```
-  - Binaries built from this repository after the PR #44 fix embed DIO mode in the
-    binary header automatically, so flashing them without `--flash-mode dio` also works.
 - Build flashes but hardware behavior is wrong:
   - Confirm you used SP530E target assets (not another board).
 - Flash command fails with chip/connection errors:
