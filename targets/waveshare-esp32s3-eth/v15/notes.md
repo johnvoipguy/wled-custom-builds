@@ -4,7 +4,9 @@ Reference notes for the custom WLED `0.15.x` Waveshare ESP32-S3-ETH build line.
 
 ## Active line status
 
-- **Active/preserved line for this target:** `v15`
+- **Preserved/frozen line for this target — not actively developed against.** The active line
+  is now [`v16`](../v16/notes.md) (WLED 16.0.1). See there for the ported, compiled-and-tested
+  W5500 driver; this v15 line is kept only for its preserved legacy firmware assets.
 - WLED line: `0.15.x`
 - Canonical PlatformIO environment: `waveshare_esp32s3_eth`
 - Canonical env definition: `../shared/platformio.env.ini`

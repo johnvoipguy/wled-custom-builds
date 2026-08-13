@@ -31,5 +31,6 @@ esptool.py --chip esp32s3 write_flash 0x0000 <your-file>.full.bin
 
 ## More target details
 
-- v15 active line notes: [targets/waveshare-esp32s3-eth/v15/notes.md](v15/notes.md)
-- Shared target config: [targets/waveshare-esp32s3-eth/shared](shared)
+- v16 active line notes (WLED 16.0.1, W5500 hardware-socket Ethernet): [targets/waveshare-esp32s3-eth/v16/notes.md](v16/notes.md) — not yet validated on physical hardware, compiles clean.
+- v15 line notes (WLED 0.15.x, preserved/frozen): [targets/waveshare-esp32s3-eth/v15/notes.md](v15/notes.md)
+- Shared target config (v15 line only — v16 has its own env fragment, see v16/notes.md): [targets/waveshare-esp32s3-eth/shared](shared)
