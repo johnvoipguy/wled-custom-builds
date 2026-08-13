@@ -103,7 +103,7 @@ index 19c40a3..17e95ce 100644
  
  static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index 606fa65..08c14bc 100644
+index 606fa65..435838a 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
 @@ -175,6 +175,21 @@ const ethernet_settings ethernetBoards[] = {
@@ -141,7 +141,7 @@ index 606fa65..08c14bc 100644
    // Ethernet initialization should only succeed once -- else reboot required
    ethernet_settings es = ethernetBoards[ethernetType];
    managed_pin_type pinsToAllocate[10] = {
-@@ -287,6 +308,173 @@ bool initEthernet()
+@@ -287,6 +308,201 @@ bool initEthernet()
  #endif
  
  
@@ -214,9 +214,24 @@ index 606fa65..08c14bc 100644
 +  // the next boot re-enters the same path - a self-sustaining boot loop (rst:0x7
 +  // TG0WDT_SYS_RST) recoverable only by erasing flash. Kept as a deliberate guard, but note
 +  // the settle delays above are what actually keep Unknown from occurring in normal operation.
-+  if (Ethernet.linkStatus() != LinkON) {
-+    DEBUG_PRINTLN(F("initW5500: link not up - will retry via handleW5500() hot-plug polling"));
-+    return false; // keep pins/SPI initialized so hot-plug retry can pick up cleanly
++  // Report chip detection and link state separately - they are different failures with
++  // different causes, and a single "link not up" message cannot tell them apart:
++  //   hardwareStatus 0 (NoHardware) = the W5500 never answered over SPI at all -> wiring, SPI
++  //     pins, reset timing or bus contention. Link state is meaningless in this case.
++  //   hardwareStatus 3 (W5500)      = chip is detected and talking; then linkStatus decides:
++  //     0 Unknown / 2 LinkOFF = no cable or no partner; 1 LinkON = ready.
++  {
++    const int hw = (int)Ethernet.hardwareStatus();
++    const int ls = (int)Ethernet.linkStatus();
++    DEBUG_PRINTF_P(PSTR("initW5500: hardwareStatus=%d (0=none,1=W5100,2=W5200,3=W5500,4=W5100S) linkStatus=%d (0=unknown,1=up,2=down)\n"), hw, ls);
++    if (hw == 0) {
++      DEBUG_PRINTLN(F("initW5500: W5500 NOT DETECTED over SPI - check wiring/pins, not the cable"));
++      return false;
++    }
++    if (ls != LinkON) {
++      DEBUG_PRINTLN(F("initW5500: chip OK but link is down - check cable/switch; retrying via handleW5500()"));
++      return false; // keep pins/SPI initialized so hot-plug retry can pick up cleanly
++    }
 +  }
 +
 +  uint8_t mac[6];
@@ -272,10 +287,23 @@ index 606fa65..08c14bc 100644
 +  if (millis() - lastPoll < 500) return;
 +  lastPoll = millis();
 +
++  // Only act when this board is actually selected as the Ethernet type. Without this the
++  // driver would grab the SPI pins on any build that merely compiles WLED_USE_W5500 in.
++  if (ethernetType != WLED_ETH_WAVESHARE_S3_ETH_W5500) return;
++
 +  if (!w5500Configured) {
 +    if (millis() - lastInitAttempt > 5000) {
 +      lastInitAttempt = millis();
-+      if (w5500SpiReady && Ethernet.linkStatus() == LinkON) {
++      // Do NOT gate this on w5500SpiReady: that flag is only ever set inside
++      // initW5500Ethernet(), so gating on it here made the retry unable to bootstrap itself -
++      // if init never ran at boot (Ethernet type not yet selected, or selected without a
++      // reboot), SPI was never initialized, so linkStatus() could not be trusted and init was
++      // never retried. initW5500Ethernet() is idempotent and performs its own SPI setup, so
++      // call it directly and let it decide; it returns early and cheaply when there is no link.
++      if (!w5500SpiReady) {
++        DEBUG_PRINTLN(F("handleW5500: SPI not initialized yet, bootstrapping W5500"));
++        initW5500Ethernet();
++      } else if (Ethernet.linkStatus() == LinkON) {
 +        DEBUG_PRINTLN(F("handleW5500: cable detected, retrying init"));
 +        initW5500Ethernet();
 +      }
