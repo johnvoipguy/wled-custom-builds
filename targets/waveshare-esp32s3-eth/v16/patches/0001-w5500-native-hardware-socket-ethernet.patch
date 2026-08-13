@@ -59,7 +59,7 @@ index 6201a19..3d9b7c6 100644
  void fillMAC2Str(char *str, const uint8_t *mac);
  void fillStr2MAC(uint8_t *mac, const char *str);
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index 606fa65..71de029 100644
+index 606fa65..08c14bc 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
 @@ -175,6 +175,21 @@ const ethernet_settings ethernetBoards[] = {
@@ -97,7 +97,7 @@ index 606fa65..71de029 100644
    // Ethernet initialization should only succeed once -- else reboot required
    ethernet_settings es = ethernetBoards[ethernetType];
    managed_pin_type pinsToAllocate[10] = {
-@@ -287,6 +308,153 @@ bool initEthernet()
+@@ -287,6 +308,173 @@ bool initEthernet()
  #endif
  
  
@@ -117,6 +117,12 @@ index 606fa65..71de029 100644
 +
 +bool initW5500Ethernet() {
 +  if (w5500Configured) return false;
++
++  // Settle delay carried over verbatim from the validated v0.15.1 driver. initEthernet() runs
++  // during boot config load, and the W5500 needs the rail/clock to stabilize before its
++  // registers answer reliably over SPI. Do not remove: without it the chip is not ready when
++  // linkStatus() is first read, which reports Unknown rather than a real link state.
++  delay(100);
 +
 +  DEBUG_PRINTF_P(PSTR("initW5500: pins MISO:%d MOSI:%d SCLK:%d CS:%d RST:%d INT:%d\n"),
 +    W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
@@ -146,7 +152,8 @@ index 606fa65..71de029 100644
 +    delay(150);
 +
 +    SPI.begin(W5500_SCLK, W5500_MISO, W5500_MOSI, W5500_CS);
-+    SPI.setFrequency(10000000); // 10 MHz - conservative for signal integrity
++    SPI.setFrequency(10000000); // 10 MHz - lower speed for stability
++    delay(50);                  // let the SPI bus settle before first chip access (v0.15.1)
 +    pinMode(W5500_CS, OUTPUT);
 +    digitalWrite(W5500_CS, HIGH);
 +    Ethernet.init(W5500_CS);
@@ -154,13 +161,15 @@ index 606fa65..71de029 100644
 +    w5500SpiReady = true;
 +  }
 +
-+  // Check link before Ethernet.begin() so an unplugged cable doesn't block boot/WiFi.
-+  // Require a definitively-up link: linkStatus() also returns Unknown (not LinkOFF) when chip
-+  // detection over SPI fails, and treating Unknown as "maybe up" falls through to the blocking
-+  // DHCP call below. That runs during boot (initEthernet() is called from deserializeConfig()),
-+  // so a multi-second block there trips the hardware watchdog -> reset -> and because
-+  // ethernetType is persisted in the config, the same path runs again on the next boot: a
-+  // self-sustaining boot loop (rst:0x7 TG0WDT_SYS_RST) with no way out except erasing flash.
++  // Check link status BEFORE Ethernet.begin() so an unplugged cable can't block boot/WiFi.
++  // v0.15.1 tested "== LinkOFF" here; this requires a definitively-up link instead. The two
++  // differ only for Unknown, which linkStatus() returns when the chip does not answer chip-ID
++  // detection - and treating Unknown as "maybe up" falls through to the blocking DHCP call
++  // below. That call runs during boot (initEthernet() is invoked from deserializeConfig()), so
++  // blocking there long enough trips the hardware watchdog; since ethernetType is persisted,
++  // the next boot re-enters the same path - a self-sustaining boot loop (rst:0x7
++  // TG0WDT_SYS_RST) recoverable only by erasing flash. Kept as a deliberate guard, but note
++  // the settle delays above are what actually keep Unknown from occurring in normal operation.
 +  if (Ethernet.linkStatus() != LinkON) {
 +    DEBUG_PRINTLN(F("initW5500: link not up - will retry via handleW5500() hot-plug polling"));
 +    return false; // keep pins/SPI initialized so hot-plug retry can pick up cleanly
@@ -175,8 +184,10 @@ index 606fa65..71de029 100644
 +  mac[4] = (chipid >> 8)  & 0xFF;
 +  mac[5] =  chipid        & 0xFF;
 +
-+  // Keep this window short: it blocks, and initEthernet() runs during boot config load.
-+  if (Ethernet.begin(mac, 6000, 2000) == 0) { // 6s DHCP timeout, 2s per-response timeout
++  // Timeouts carried over verbatim from the validated v0.15.1 driver. This blocks, and
++  // initEthernet() runs during boot config load - but it is only reached once the link is
++  // confirmed up, so it does not run on a disconnected board.
++  if (Ethernet.begin(mac, 15000, 4000) == 0) { // 15s DHCP timeout, 4s per-response timeout
 +    DEBUG_PRINTLN(F("initW5500: DHCP timeout"));
 +    for (auto& pin : w5500Pins) PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
 +    w5500PinsTaken = false;
@@ -193,8 +204,17 @@ index 606fa65..71de029 100644
 +  }
 +
 +  w5500Configured = true;
-+  DEBUG_PRINTF_P(PSTR("initW5500: *** connected, IP %d.%d.%d.%d ***\n"),
++  // Full interface dump, as in v0.15.1 - subnet/gateway/DNS are what you actually need when
++  // diagnosing "got a lease but nothing routes" on this board.
++  DEBUG_PRINTF_P(PSTR("initW5500: *** connected ***\n"));
++  DEBUG_PRINTF_P(PSTR("  IP:      %d.%d.%d.%d\n"),
 +    Ethernet.localIP()[0], Ethernet.localIP()[1], Ethernet.localIP()[2], Ethernet.localIP()[3]);
++  DEBUG_PRINTF_P(PSTR("  Subnet:  %d.%d.%d.%d\n"),
++    Ethernet.subnetMask()[0], Ethernet.subnetMask()[1], Ethernet.subnetMask()[2], Ethernet.subnetMask()[3]);
++  DEBUG_PRINTF_P(PSTR("  Gateway: %d.%d.%d.%d\n"),
++    Ethernet.gatewayIP()[0], Ethernet.gatewayIP()[1], Ethernet.gatewayIP()[2], Ethernet.gatewayIP()[3]);
++  DEBUG_PRINTF_P(PSTR("  DNS:     %d.%d.%d.%d\n"),
++    Ethernet.dnsServerIP()[0], Ethernet.dnsServerIP()[1], Ethernet.dnsServerIP()[2], Ethernet.dnsServerIP()[3]);
 +  return true;
 +}
 +
