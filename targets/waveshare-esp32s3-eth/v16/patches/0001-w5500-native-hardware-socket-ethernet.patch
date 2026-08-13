@@ -59,7 +59,7 @@ index 6201a19..3d9b7c6 100644
  void fillMAC2Str(char *str, const uint8_t *mac);
  void fillStr2MAC(uint8_t *mac, const char *str);
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index 606fa65..87d23a8 100644
+index 606fa65..71de029 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
 @@ -175,6 +175,21 @@ const ethernet_settings ethernetBoards[] = {
@@ -97,7 +97,7 @@ index 606fa65..87d23a8 100644
    // Ethernet initialization should only succeed once -- else reboot required
    ethernet_settings es = ethernetBoards[ethernetType];
    managed_pin_type pinsToAllocate[10] = {
-@@ -287,6 +308,146 @@ bool initEthernet()
+@@ -287,6 +308,153 @@ bool initEthernet()
  #endif
  
  
@@ -155,8 +155,14 @@ index 606fa65..87d23a8 100644
 +  }
 +
 +  // Check link before Ethernet.begin() so an unplugged cable doesn't block boot/WiFi.
-+  if (Ethernet.linkStatus() == LinkOFF) {
-+    DEBUG_PRINTLN(F("initW5500: no link - will retry via handleW5500() hot-plug polling"));
++  // Require a definitively-up link: linkStatus() also returns Unknown (not LinkOFF) when chip
++  // detection over SPI fails, and treating Unknown as "maybe up" falls through to the blocking
++  // DHCP call below. That runs during boot (initEthernet() is called from deserializeConfig()),
++  // so a multi-second block there trips the hardware watchdog -> reset -> and because
++  // ethernetType is persisted in the config, the same path runs again on the next boot: a
++  // self-sustaining boot loop (rst:0x7 TG0WDT_SYS_RST) with no way out except erasing flash.
++  if (Ethernet.linkStatus() != LinkON) {
++    DEBUG_PRINTLN(F("initW5500: link not up - will retry via handleW5500() hot-plug polling"));
 +    return false; // keep pins/SPI initialized so hot-plug retry can pick up cleanly
 +  }
 +
@@ -169,7 +175,8 @@ index 606fa65..87d23a8 100644
 +  mac[4] = (chipid >> 8)  & 0xFF;
 +  mac[5] =  chipid        & 0xFF;
 +
-+  if (Ethernet.begin(mac, 15000, 4000) == 0) { // 15s DHCP timeout, 4s per-response timeout
++  // Keep this window short: it blocks, and initEthernet() runs during boot config load.
++  if (Ethernet.begin(mac, 6000, 2000) == 0) { // 6s DHCP timeout, 2s per-response timeout
 +    DEBUG_PRINTLN(F("initW5500: DHCP timeout"));
 +    for (auto& pin : w5500Pins) PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
 +    w5500PinsTaken = false;
