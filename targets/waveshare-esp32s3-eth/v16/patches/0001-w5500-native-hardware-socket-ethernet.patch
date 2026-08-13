@@ -103,10 +103,10 @@ index 19c40a3..17e95ce 100644
  
  static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index 606fa65..7dc3e9c 100644
+index 606fa65..479ffac 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
-@@ -175,6 +175,21 @@ const ethernet_settings ethernetBoards[] = {
+@@ -175,6 +175,26 @@ const ethernet_settings ethernetBoards[] = {
      ETH_PHY_LAN8720,     // eth_type
      ETH_CLOCK_GPIO0_IN   // eth_clk_mode
    },
@@ -123,12 +123,17 @@ index 606fa65..7dc3e9c 100644
 +    -1,                  // eth_mdc (unused)
 +    -1,                  // eth_mdio (unused)
 +    ETH_PHY_LAN8720,     // eth_type (unused; W5500 path never reads this)
-+    ETH_CLOCK_GPIO0_IN   // eth_clk_mode (unused)
++    // eth_clk_mode: deliberately NOT ETH_CLOCK_GPIO0_*. Although initEthernet() never reads
++    // this field on the W5500 path, xml.cpp's reserved-pin reporting DOES switch on it, and
++    // the GPIO0 cases make the UI reserve GPIO0 - blocking it as an LED data pin for a clock
++    // signal that does not exist on a SPI-attached part. GPIO17_OUT is inert here because
++    // xml.cpp's W5500 branch returns before reaching this switch.
++    ETH_CLOCK_GPIO17_OUT // eth_clk_mode (unused)
 +  },
  };
  
  // sanity checks for ethernet config table and WLED_ETH_DEFAULT
-@@ -201,6 +216,12 @@ bool initEthernet()
+@@ -201,6 +221,12 @@ bool initEthernet()
  
    DEBUG_PRINTF_P(PSTR("initE: Attempting ETH config: %d\n"), ethernetType);
  
@@ -141,7 +146,7 @@ index 606fa65..7dc3e9c 100644
    // Ethernet initialization should only succeed once -- else reboot required
    ethernet_settings es = ethernetBoards[ethernetType];
    managed_pin_type pinsToAllocate[10] = {
-@@ -287,6 +308,212 @@ bool initEthernet()
+@@ -287,6 +313,212 @@ bool initEthernet()
  #endif
  
  
@@ -470,3 +475,26 @@ index 308c939..63797a2 100644
      if (interfacesInited) {
        if (scanDone && multiWiFi.size() > 1) {
          DEBUG_PRINTLN(F("WiFi scan initiated on disconnect."));
+diff --git a/wled00/xml.cpp b/wled00/xml.cpp
+index 03d4cd1..2135142 100644
+--- a/wled00/xml.cpp
++++ b/wled00/xml.cpp
+@@ -132,6 +132,18 @@ static void appendGPIOinfo(Print& settingsScript)
+   firstPin = false;
+   #endif
+   #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
++  #ifdef WLED_USE_W5500
++  if (ethernetType == WLED_ETH_WAVESHARE_S3_ETH_W5500) {
++    // SPI-attached PHY: none of the RMII plumbing below applies. Report only the pins the
++    // W5500 genuinely occupies. Reporting the RMII set here would reserve GPIO 19/21/22/25/26/27
++    // for a bus this board does not have, and the eth_clk_mode switch further down would
++    // reserve GPIO0 for a clock that does not exist on a SPI part - making those pins
++    // unusable for LED output in the UI even though the firmware allocates them happily.
++    if (!firstPin) settingsScript.print(',');
++    settingsScript.printf("%d,%d,%d,%d,%d,%d", W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
++    firstPin = false;
++  } else
++  #endif
+   if (ethernetType != WLED_ETH_NONE && ethernetType < WLED_NUM_ETH_TYPES) {
+     if (!firstPin) settingsScript.print(',');
+     for (unsigned p=0; p<WLED_ETH_RSVD_PINS_COUNT; p++) { settingsScript.printf("%d,",esp32_nonconfigurable_ethernet_pins[p].pin); }
