@@ -1,8 +1,43 @@
 # Waveshare ESP32S3 Ethernet — v16 notes
 
 W5500 Ethernet ported forward from the validated `waveshare-esp32s3-eth-v15.1` branch to
-WLED `v16.0.1`. Compiled clean against a real `wled/WLED` v16.0.1 checkout (RAM 13.7%, Flash
-39.3% on the partition layout below) — **not yet validated on physical hardware.**
+WLED `v16.0.1`.
+
+## Hardware validation status
+
+**Boots and runs on real hardware.** Confirmed on a Waveshare ESP32-S3-ETH: device comes up,
+serves the `WLED-ETH-Config` AP, accepts WiFi credentials, connects over WiFi, and reports 3MB
+app partitions. Flash 39.4% of a 3MB app slot.
+
+Still **unverified on hardware**:
+- W5500 Ethernet link-up / DHCP under WLED (the standalone Arduino sanity sketch works, and
+  the driver is ported, but end-to-end Ethernet under WLED has not been exercised).
+- Whether realtime protocols actually traverse the W5500 — see "Known limitation" below.
+
+### Flash mode: the one thing that will brick a build
+
+The board's flash requires **DIO**. A QIO-header image boot-loops in ROM before any application
+code runs:
+
+```text
+rst:0x7 (TG0WDT_SYS_RST),boot:0x8 (SPI_FAST_FLASH_BOOT)
+mode:QIO, clock div:1
+load:0x3fce3808,len:0x128
+ets_loader.c 78
+```
+
+...repeating forever, recoverable only by `esptool.py erase_flash`. This is a ROM-stage failure,
+so no serial output from WLED ever appears and it is easy to misdiagnose as a firmware bug.
+
+The fix is split across two keys in `platformio.env.ini`, which **must** differ:
+
+| key | value | what it controls |
+|---|---|---|
+| `board_build.flash_mode` | `qio` | which prebuilt bootloader PlatformIO links. The esp32s3 core ships no `bootloader_dio_*.elf`, so `dio` here fails the build outright. |
+| `custom_merge_flash_mode` | `dio` | the mode stamped into the merged image header — what the ROM actually honors at boot. Read by `scripts/build-target.sh`. |
+
+Ground truth for this board, read from the image header of the working v0.15.1 firmware:
+`mode=DIO size=16MB freq=80MHz`. Any image for this target must match.
 
 ## Active line status
 
