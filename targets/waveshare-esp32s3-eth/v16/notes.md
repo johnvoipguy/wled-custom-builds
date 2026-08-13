@@ -5,14 +5,37 @@ WLED `v16.0.1`.
 
 ## Hardware validation status
 
-**Boots and runs on real hardware.** Confirmed on a Waveshare ESP32-S3-ETH: device comes up,
-serves the `WLED-ETH-Config` AP, accepts WiFi credentials, connects over WiFi, and reports 3MB
-app partitions. Flash 39.4% of a 3MB app slot.
+**Verified on a Waveshare ESP32-S3-ETH:**
+- Boots cleanly; serves the `WLED-ETH-Config` AP, accepts WiFi credentials, connects over WiFi.
+- 3MB app partitions; firmware occupies ~39% of the app slot.
+- **W5500 Ethernet comes up**: chip detected over SPI (`hardwareStatus=3`), link detected
+  (`linkStatus=1`), DHCP lease obtained.
+- WiFi and Ethernet run simultaneously with **distinct IPs**, both shown in the info panel.
 
 Still **unverified on hardware**:
-- W5500 Ethernet link-up / DHCP under WLED (the standalone Arduino sanity sketch works, and
-  the driver is ported, but end-to-end Ethernet under WLED has not been exercised).
-- Whether realtime protocols actually traverse the W5500 — see "Known limitation" below.
+- Whether realtime protocols (DDP/E1.31/Art-Net) and MQTT actually traverse the W5500 —
+  see "Known limitation" below. This is the significant open question.
+- OTA behavior over a long period / repeated updates on the 3MB layout.
+
+### Debugging notes earned the hard way
+
+Two failures during bring-up, both worth knowing about before touching this driver:
+
+1. **`linkStatus()` before `Ethernet.begin()` does not work with Ethernet_Generic.** Its
+   `W5100Class::getLinkStatus()` starts with `if (!initialized) return UNKNOWN;` — a passive
+   flag test. The stock Arduino `Ethernet` library that the v0.15.1 driver used instead starts
+   with `if (!init()) return UNKNOWN;`, which *actively* initializes the chip on first call.
+   Same function name, same call order, opposite behavior: on Ethernet_Generic the chip is
+   never probed, so it reports `hardwareStatus=0 / linkStatus=0` forever even with a live link
+   and a blinking activity LED. `initW5500Ethernet()` therefore calls `W5100.init()` explicitly
+   before reading status. **The v0.15.1 call sequence was correct for its library** — this is
+   fallout from the forced library swap, not from the original logic.
+
+2. **Flash mode** — see the DIO section above. That one manifests as a ROM-level boot loop with
+   no WLED output at all.
+
+General lesson for this target: a drop-in-compatible library that matches on names and
+signatures does not necessarily match on semantics. Verify behavior, not just that it compiles.
 
 ### Flash mode: the one thing that will brick a build
 
