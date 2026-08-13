@@ -22,6 +22,20 @@ index 04ff8de..b9eb523 100644
  
  
  //Hue error codes
+diff --git a/wled00/data/index.js b/wled00/data/index.js
+index da73a0e..f496ec0 100644
+--- a/wled00/data/index.js
++++ b/wled00/data/index.js
+@@ -730,6 +730,9 @@ ${i.leds.count?inforow("Total LEDs",i.leds.count):""}
+ ${inforow("Estimated current",pwru)}
+ ${inforow("Average FPS",i.leds.fps)}
+ <tr><td colspan=2><hr class="sml"></td></tr>
++${i.ip?inforow("IP address",i.ip):""}
++${i.wifiip?inforow("WiFi IP",i.wifiip):""}
++${i.ethip?inforow("Ethernet IP",i.ethip):""}
+ ${inforow("MAC address",i.mac)}
+ ${inforow("CPU clock",i.clock," MHz")}
+ ${inforow("Flash size",i.flash," MB")}
 diff --git a/wled00/data/settings_wifi.htm b/wled00/data/settings_wifi.htm
 index d06d501..6e482f3 100644
 --- a/wled00/data/settings_wifi.htm
@@ -58,6 +72,36 @@ index 6201a19..3d9b7c6 100644
  int  getSignalQuality(int rssi);
  void fillMAC2Str(char *str, const uint8_t *mac);
  void fillStr2MAC(uint8_t *mac, const char *str);
+diff --git a/wled00/json.cpp b/wled00/json.cpp
+index 19c40a3..17e95ce 100644
+--- a/wled00/json.cpp
++++ b/wled00/json.cpp
+@@ -915,6 +915,25 @@ void serializeInfo(JsonObject root)
+     sprintf(s, "%d.%d.%d.%d", localIP[0], localIP[1], localIP[2], localIP[3]);
+   }
+   root["ip"] = s;
++
++#ifdef WLED_USE_W5500
++  // Dual-interface builds run WiFi and W5500 Ethernet at the same time, but "ip" above can only
++  // carry one address (Network.localIP() prefers Ethernet when it has a lease). Report each
++  // interface separately so both are visible in the UI - otherwise the Ethernet address is only
++  // discoverable over USB serial or by digging through DHCP server logs.
++  if (WiFi.localIP()[0] != 0) {
++    IPAddress wip = WiFi.localIP();
++    char w[16] = "";
++    sprintf(w, "%d.%d.%d.%d", wip[0], wip[1], wip[2], wip[3]);
++    root[F("wifiip")] = w;
++  }
++  if (w5500IsConnected()) {
++    IPAddress eip = w5500LocalIP();
++    char e[16] = "";
++    sprintf(e, "%d.%d.%d.%d", eip[0], eip[1], eip[2], eip[3]);
++    root[F("ethip")] = e;
++  }
++#endif
+ }
+ 
+ static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
 diff --git a/wled00/network.cpp b/wled00/network.cpp
 index 606fa65..08c14bc 100644
 --- a/wled00/network.cpp
