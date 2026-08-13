@@ -103,7 +103,7 @@ index 19c40a3..17e95ce 100644
  
  static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index 606fa65..435838a 100644
+index 606fa65..7dc3e9c 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
 @@ -175,6 +175,21 @@ const ethernet_settings ethernetBoards[] = {
@@ -141,7 +141,7 @@ index 606fa65..435838a 100644
    // Ethernet initialization should only succeed once -- else reboot required
    ethernet_settings es = ethernetBoards[ethernetType];
    managed_pin_type pinsToAllocate[10] = {
-@@ -287,6 +308,201 @@ bool initEthernet()
+@@ -287,6 +308,212 @@ bool initEthernet()
  #endif
  
  
@@ -214,6 +214,17 @@ index 606fa65..435838a 100644
 +  // the next boot re-enters the same path - a self-sustaining boot loop (rst:0x7
 +  // TG0WDT_SYS_RST) recoverable only by erasing flash. Kept as a deliberate guard, but note
 +  // the settle delays above are what actually keep Unknown from occurring in normal operation.
++  // Probe/initialize the W5500 before asking it anything. Ethernet_Generic's
++  // W5100Class::getLinkStatus() opens with "if (!initialized) return UNKNOWN;", and
++  // "initialized" is only set inside W5100::init() - which the library otherwise calls
++  // lazily from Ethernet.begin(). Checking linkStatus() before begin() therefore returns
++  // UNKNOWN unconditionally, regardless of the real cable state, making the link check
++  // below useless and leaving the interface permanently "down" even with a live link.
++  // (The v0.15.1 driver checked link before begin() too, but it used the stock Arduino
++  // Ethernet library, whose linkStatus() has no such guard - the library swap changed this
++  // contract.) init() is idempotent, so calling it here is safe and cheap.
++  W5100.init(MAX_SOCK_NUM, W5500_CS);
++
 +  // Report chip detection and link state separately - they are different failures with
 +  // different causes, and a single "link not up" message cannot tell them apart:
 +  //   hardwareStatus 0 (NoHardware) = the W5500 never answered over SPI at all -> wiring, SPI
