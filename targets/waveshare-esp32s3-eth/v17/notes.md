@@ -55,7 +55,7 @@ turns into a build failure.
 - `build.json` — `wled_ref: main`.
 - `platformio.env.ini` — the `[env:waveshare_esp32s3_eth_v5]` fragment.
 
-## Three bugs found and fixed along the way
+## Four bugs found and fixed along the way
 
 The first two were found while chasing "LED hardware settings silently don't save" — which
 turned out to be a real WLED-main/Core3.x bug, **not Ethernet/W5500-specific** (independently
@@ -115,6 +115,24 @@ added `_data(nullptr)` to both NeoPixelBus method constructors in the vendored c
 safety net (see `lib/NeoPixelBus/WLED_PATCH_NOTES.md`) — not the primary fix, but it means an
 un-`Initialize()`'d bus's destructor now does a safe `free(nullptr)` instead of freeing garbage,
 for any other call path that might hit the same gap in the future.
+
+### 4. LED Hardware settings page shows stale data right after a save (minor UX race)
+
+Symptom: save the LED settings page, get redirected to the config menu, immediately click back
+into LED Hardware — the pre-save config still shows, until a manual refresh or a moment's wait.
+Not data loss — the save itself is correct; it's a display race.
+
+Cause: `getSettingsJS()` (`xml.cpp`) builds the LED Hardware page from the *live*
+`BusManager::busses` list, which is only rebuilt when `loop()` consumes `doInitBusses` (via
+`finalizeInit()`) — asynchronously, on a later `loop()` iteration than the one that sent the
+save's HTTP response. A fast enough client (or a request that happens to land before that
+`loop()` iteration) can see the settings page before the rebuild finishes.
+
+Fixed in `wled_server.cpp`'s POST handler: after `handleSettingsSet()` returns for
+`SUBPAGE_LEDS`, the response is now held (bounded wait, ~3s) until `doInitBusses` is consumed,
+so by the time the browser gets the response and navigates onward, the rebuild has already
+happened. Safe to block here — this is the request-handler task polling a flag that `loop()`
+clears independently, not the two tasks waiting on each other.
 
 ## Pin configuration
 
