@@ -94,7 +94,12 @@ If you remember one thing: type `release` only when you want fireworks on the Re
   - Preserved legacy firmware: `targets/seeed-xiao-esp32s3/v16/assets/legacy/`
 - **Waveshare ESP32-S3-ETH**
   - Canonical env: `targets/waveshare-esp32s3-eth/shared/platformio.env.ini`
-  - Active line notes: `targets/waveshare-esp32s3-eth/v15/notes.md`
+  - `v17` (recommended): WLED `main`/IDF5, native lwIP W5500 — DDP/E1.31/MQTT/web UI all work
+    over Ethernet. Hardware-validated on two boards. `targets/waveshare-esp32s3-eth/v17/notes.md`
+  - `v16`: WLED 16.0.1, W5500 hardware-socket offload — hardware-validated, but Ethernet only
+    carries link-up/DHCP, no WLED application traffic (see v16 notes for why).
+    `targets/waveshare-esp32s3-eth/v16/notes.md`
+  - `v15`: preserved/frozen. `targets/waveshare-esp32s3-eth/v15/notes.md`
 - **SP530E**
   - Shared target assets: `targets/sp530e/shared/`
 
@@ -153,10 +158,15 @@ targets/
       build.default.json    ← fallback manifest when targets/<target>/<version>/build.json is missing
       build.example.json    ← complete manifest example (environment, wled_ref, optional wled_repo)
     v15/
-      notes.md              ← v15 active-line delta notes
+      notes.md              ← v15 line notes (preserved/frozen)
       assets/
         README.md           ← no preserved legacy firmware currently tracked
-    v16/                    ← future placeholder only
+    v16/
+      notes.md              ← v16 line notes: WLED 16.0.1, W5500 hardware-socket offload
+      patches/, lib/        ← Ethernet_Generic driver patch + vendored library
+    v17/
+      notes.md              ← v17 line notes: WLED main/IDF5, native lwIP W5500 (recommended)
+      patches/, lib/        ← native ETH_PHY_W5500 patch + vendored NeoPixelBus (RMT fix)
 platformio.ini              ← generic WLED base (root = upstream defaults, not target-specific)
 logs/
   <target>/<version>/
