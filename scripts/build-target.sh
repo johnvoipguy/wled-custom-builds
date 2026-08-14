@@ -187,7 +187,16 @@ bootloader_offset_for_chip() {
   esac
 }
 
-# Detect board_build.flash_mode from a specific PlatformIO environment section.
+# Detect the flash mode to stamp into the merged full-flash image header.
+#
+# Prefers custom_merge_flash_mode over board_build.flash_mode. These can legitimately differ:
+# board_build.flash_mode selects which prebuilt bootloader PlatformIO links (the arduino-esp32
+# core ships only bootloader_qio_*/bootloader_opi_* for esp32s3 - there is no dio variant, so
+# an esp32s3 build MUST say qio there or it fails outright), while the flash mode the ROM
+# actually uses at boot is a header field that esptool stamps at merge time. On boards whose
+# flash needs DIO, a qio-header image boot-loops in ROM before any application code runs.
+# Setting custom_merge_flash_mode = dio lets such a target build with the qio bootloader and
+# still ship a DIO-header image.
 detect_flash_mode_from_ini_section() {
   local ini_file=$1
   local env_name=$2
@@ -211,10 +220,13 @@ if not parser.has_section(section_name):
   sys.exit(1)
 
 section = parser[section_name]
-flash_mode = section.get("board_build.flash_mode", "").strip()
-if flash_mode in ("dio", "qio", "dout", "qout"):
-  print(flash_mode)
-  sys.exit(0)
+# custom_merge_flash_mode wins: it is the mode stamped into the merged image header, which is
+# what the ROM honors at boot. board_build.flash_mode only selects the prebuilt bootloader.
+for key in ("custom_merge_flash_mode", "board_build.flash_mode"):
+  flash_mode = section.get(key, "").strip()
+  if flash_mode in ("dio", "qio", "dout", "qout"):
+    print(flash_mode)
+    sys.exit(0)
 
 sys.exit(1)
 PY
@@ -455,46 +467,70 @@ merge_full_image_for_env() {
   #  1) PlatformIO tool package executable: ~/.platformio/packages/tool-esptoolpy/esptool
   #  2) PlatformIO tool package directory: ~/.platformio/packages/tool-esptoolpy/esptool/esptool.py
   #  3) esptool on PATH
-  #  4) python3 -m esptool
+  #  4) PlatformIO Core's own venv: ~/.platformio/penv/bin/python3 -m esptool (newer
+  #     platform-espressif32/pioarduino releases vendor esptool inside the platform package
+  #     rather than as a separate tool-esptoolpy package, so (1)/(2) can both be absent even
+  #     though esptool is fully available via the venv PlatformIO itself runs on)
+  #  5) python3 -m esptool
   local esptool_cmd=()
   local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
   local pio_esptool="$pio_home/packages/tool-esptoolpy/esptool"
   local pio_esptool_py="$pio_home/packages/tool-esptoolpy/esptool/esptool.py"
+  local pio_venv_python="$pio_home/penv/bin/python3"
 
   echo "esptool probe: esptool path is_dir=$( [ -d \"$pio_esptool\" ] && echo yes || echo no ) is_file=$( [ -f \"$pio_esptool\" ] && echo yes || echo no )"
   echo "esptool probe: esptool.py exists=$( [ -f \"$pio_esptool_py\" ] && echo yes || echo no )"
+  echo "esptool probe: pio venv python exists=$( [ -x \"$pio_venv_python\" ] && echo yes || echo no )"
 
-  if [ -f "$pio_esptool" ] && [ -x "$pio_esptool" ]; then
+  if [ -f "$pio_esptool" ] && [ -x "$pio_esptool" ] && "$pio_esptool" version >/dev/null 2>&1; then
     esptool_cmd=("$pio_esptool")
-  elif [ -f "$pio_esptool_py" ]; then
+  elif [ -f "$pio_esptool_py" ] && python3 "$pio_esptool_py" version >/dev/null 2>&1; then
     esptool_cmd=(python3 "$pio_esptool_py")
-  elif command -v esptool >/dev/null 2>&1; then
+  elif "$pio_venv_python" -m esptool version >/dev/null 2>&1; then
+    esptool_cmd=("$pio_venv_python" -m esptool)
+  elif command -v esptool >/dev/null 2>&1 && esptool version >/dev/null 2>&1; then
     esptool_cmd=(esptool)
   elif python3 -m esptool version >/dev/null 2>&1; then
     esptool_cmd=(python3 -m esptool)
   else
-    die "merge_full_image ($env_name): cannot locate esptool — ensure PlatformIO is installed or esptool is on PATH"
+    die "merge_full_image ($env_name): cannot locate a working esptool — ensure PlatformIO is installed or a working esptool is on PATH"
+  fi
+
+  # esptool renamed this subcommand and its flags between major versions: v4.x uses
+  # "merge_bin" / "--flash_mode", v5.x uses "merge-bin" / "--flash-mode". Probe for the
+  # spelling this esptool accepts rather than assuming, so the build works on both.
+  local merge_subcmd="merge-bin"
+  local flash_mode_flag="--flash-mode"
+  if ! "${esptool_cmd[@]}" merge-bin --help >/dev/null 2>&1; then
+    if "${esptool_cmd[@]}" merge_bin --help >/dev/null 2>&1; then
+      merge_subcmd="merge_bin"
+      flash_mode_flag="--flash_mode"
+    else
+      die "merge_full_image ($env_name): esptool supports neither 'merge-bin' nor 'merge_bin'"
+    fi
   fi
 
   echo "Generating merged full image: $full_bin_path"
-  echo "  chip=$chip  bootloader_offset=$bootloader_offset  flash_mode=${flash_mode:-<from bootloader>}"
-  echo "  cmd: ${esptool_cmd[*]} --chip $chip merge-bin -o \"$full_bin_path\"${flash_mode:+ --flash-mode $flash_mode} $bootloader_offset \"$bootloader_bin\" 0x8000 \"$partitions_bin\" 0x10000 \"$firmware_bin\""
+  echo "  chip=$chip  bootloader_offset=$bootloader_offset  flash_mode=${flash_mode:-<from bootloader>}  subcmd=$merge_subcmd"
 
   # Standard WLED/ESP32 flash offsets: partitions at 0x8000, app at 0x10000.
   # Bootloader offset varies by chip (see bootloader_offset_for_chip).
-  # Flash mode is read from board_build.flash_mode in the environment ini when present,
-  # otherwise esptool inherits the mode from the bootloader binary header.
+  # Flash mode comes from custom_merge_flash_mode (preferred) or board_build.flash_mode in the
+  # environment ini; otherwise esptool inherits the mode from the bootloader binary header.
+  # This value ends up in the image header and is what the ROM honors at boot - on boards whose
+  # flash needs DIO, a QIO-header image boot-loops before any application code runs.
   local merge_bin_args=(-o "$full_bin_path")
   if [ -n "$flash_mode" ]; then
-    merge_bin_args+=(--flash-mode "$flash_mode")
+    merge_bin_args+=("$flash_mode_flag" "$flash_mode")
   fi
   merge_bin_args+=(
     "$bootloader_offset" "$bootloader_bin"
     0x8000              "$partitions_bin"
     0x10000             "$firmware_bin"
   )
-  "${esptool_cmd[@]}" --chip "$chip" merge-bin "${merge_bin_args[@]}" \
-    || die "merge_full_image ($env_name): esptool merge-bin failed"
+  echo "  cmd: ${esptool_cmd[*]} --chip $chip $merge_subcmd ${merge_bin_args[*]}"
+  "${esptool_cmd[@]}" --chip "$chip" "$merge_subcmd" "${merge_bin_args[@]}" \
+    || die "merge_full_image ($env_name): esptool $merge_subcmd failed"
 
   register_artifact_path "$full_bin_path"
   local merged_size

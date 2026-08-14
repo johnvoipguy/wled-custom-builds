@@ -8,6 +8,14 @@ Usage: scripts/apply-target.sh --target <target> --version <version> --workspace
 Copies tracked target assets from targets/<target>/shared and targets/<target>/<version>
 into an existing WLED workspace without creating clone farms.
 
+Recognized asset subdirectories under shared/ and <version>/ (all optional):
+  usermods/  -> copied into workspace/usermods
+  partitions/-> copied into workspace/tools
+  lib/       -> copied into workspace/lib (vendored/patched PlatformIO libraries)
+  patches/*.patch -> applied against the workspace tree (core wled00/ changes that
+                      don't fit the usermod/partition/env-fragment overlay shapes).
+                      Applied shared/ first, then <version>/, each in filename sort order.
+
 --no-version-overlay  Skip copying version-specific assets (only shared/ assets are applied).
                       Used when <version> is a WLED ref rather than a version overlay directory.
 USAGE
@@ -40,6 +48,55 @@ copy_env_fragment() {
   fi
   cp "$source_file" "$dest_dir/platformio.env.ini"
   echo "Copied env fragment: $source_file -> $dest_dir/platformio.env.ini"
+}
+
+apply_patches() {
+  local patches_dir=$1
+  local workspace_dir=$2
+
+  [ -d "$patches_dir" ] || return 0
+
+  local patch_files=()
+  local patch_file
+  for patch_file in "$patches_dir"/*.patch; do
+    [ -f "$patch_file" ] || continue
+    patch_files+=("$patch_file")
+  done
+  [ "${#patch_files[@]}" -gt 0 ] || return 0
+
+  # Pre-check every patch before applying any of them, so a drifted upstream reports every
+  # broken patch in one pass instead of dying on the first and hiding the rest.
+  if [ -d "$workspace_dir/.git" ]; then
+    local failed=()
+    for patch_file in "${patch_files[@]}"; do
+      if git -C "$workspace_dir" apply --check "$patch_file" 2>/dev/null; then
+        echo "Patch check OK: $patch_file"
+      else
+        echo "Patch check FAILED: $patch_file"
+        failed+=("$patch_file")
+      fi
+    done
+    if [ "${#failed[@]}" -gt 0 ]; then
+      echo "The following patches do not apply cleanly against this workspace:" >&2
+      for patch_file in "${failed[@]}"; do
+        echo "  - $patch_file" >&2
+      done
+      die "${#failed[@]} patch(es) failed pre-check in $patches_dir (see above)"
+    fi
+  fi
+
+  for patch_file in "${patch_files[@]}"; do
+    echo "Applying patch: $patch_file"
+    if [ -d "$workspace_dir/.git" ]; then
+      git -C "$workspace_dir" apply --whitespace=nowarn "$patch_file" \
+        || die "failed to apply patch (git apply): $patch_file"
+    elif command -v patch >/dev/null 2>&1; then
+      patch -p1 -d "$workspace_dir" --forward < "$patch_file" \
+        || die "failed to apply patch (patch -p1): $patch_file"
+    else
+      die "cannot apply patch $patch_file: workspace is not a git repo and 'patch' is not available"
+    fi
+  done
 }
 
 is_env_fragment_file() {
@@ -278,9 +335,13 @@ fi
 
 copy_tree "$shared_dir/usermods" "$workspace/usermods"
 copy_tree "$shared_dir/partitions" "$workspace/tools"
+copy_tree "$shared_dir/lib" "$workspace/lib"
+apply_patches "$shared_dir/patches" "$workspace"
 if [ "$no_version_overlay" = false ]; then
   copy_tree "$version_dir/usermods" "$workspace/usermods"
   copy_tree "$version_dir/partitions" "$workspace/tools"
+  copy_tree "$version_dir/lib" "$workspace/lib"
+  apply_patches "$version_dir/patches" "$workspace"
 fi
 
 selected_env_fragment=

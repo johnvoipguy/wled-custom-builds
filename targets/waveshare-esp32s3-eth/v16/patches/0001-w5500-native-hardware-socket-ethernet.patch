@@ -1,0 +1,500 @@
+diff --git a/wled00/const.h b/wled00/const.h
+index 04ff8de..b9eb523 100644
+--- a/wled00/const.h
++++ b/wled00/const.h
+@@ -395,7 +395,7 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
+ #define BTN_TYPE_TOUCH_SWITCH     9
+ 
+ //Ethernet board types
+-#define WLED_NUM_ETH_TYPES        16
++#define WLED_NUM_ETH_TYPES        17
+ 
+ 
+ #define WLED_ETH_NONE              0
+@@ -414,6 +414,10 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
+ #define WLED_ETH_GLEDOPTO         13
+ #define WLED_ETH_QUINLED_V4_UNOQUAD  14
+ #define WLED_ETH_QUINLED_V4_OCTA     15
++// NOTE: index 16 is appended, not a reused slot. WLED 0.15.1-line custom builds of this board used
++// index 13 for W5500, but 16.x upstream had already assigned 13 to WLED_ETH_GLEDOPTO by the time
++// this board was ported forward - reusing 13 here would silently collide with a real, different board.
++#define WLED_ETH_WAVESHARE_S3_ETH_W5500 16
+ 
+ 
+ //Hue error codes
+diff --git a/wled00/data/index.js b/wled00/data/index.js
+index da73a0e..f496ec0 100644
+--- a/wled00/data/index.js
++++ b/wled00/data/index.js
+@@ -730,6 +730,9 @@ ${i.leds.count?inforow("Total LEDs",i.leds.count):""}
+ ${inforow("Estimated current",pwru)}
+ ${inforow("Average FPS",i.leds.fps)}
+ <tr><td colspan=2><hr class="sml"></td></tr>
++${i.ip?inforow("IP address",i.ip):""}
++${i.wifiip?inforow("WiFi IP",i.wifiip):""}
++${i.ethip?inforow("Ethernet IP",i.ethip):""}
+ ${inforow("MAC address",i.mac)}
+ ${inforow("CPU clock",i.clock," MHz")}
+ ${inforow("Flash size",i.flash," MB")}
+diff --git a/wled00/data/settings_wifi.htm b/wled00/data/settings_wifi.htm
+index d06d501..6e482f3 100644
+--- a/wled00/data/settings_wifi.htm
++++ b/wled00/data/settings_wifi.htm
+@@ -241,6 +241,7 @@ Static subnet mask:<br>
+ 			<option value="3">WESP32</option>
+ 			<option value="1">WT32-ETH01</option>
+ 			<option value="13">Gledopto</option>
++			<option value="16">Waveshare ESP32-S3-ETH (W5500)</option>
+ 		</select><br><br>
+ 	</div>
+ 	<div class="sec">
+diff --git a/wled00/fcn_declare.h b/wled00/fcn_declare.h
+index 6201a19..3d9b7c6 100644
+--- a/wled00/fcn_declare.h
++++ b/wled00/fcn_declare.h
+@@ -301,6 +301,19 @@ void espNowReceiveCB(uint8_t* address, uint8_t* data, uint8_t len, signed int rs
+ 
+ //network.cpp
+ bool initEthernet(); // result is informational
++#ifdef WLED_USE_W5500
++bool initW5500Ethernet();
++void handleW5500();
++// Thin wrappers around the W5500 driver's Ethernet_Generic library object, kept out of
++// Network.cpp on purpose: Ethernet_Generic is an h-only library (function bodies live in its
++// headers), so including it from more than one .cpp causes ODR/"multiple definition" link
++// errors. network.cpp is its only #include site; everything else goes through these.
++bool w5500IsConnected();
++IPAddress w5500LocalIP();
++IPAddress w5500SubnetMask();
++IPAddress w5500GatewayIP();
++bool w5500MacAddress(uint8_t* mac); // returns true and fills mac[] only if a MAC is available
++#endif
+ int  getSignalQuality(int rssi);
+ void fillMAC2Str(char *str, const uint8_t *mac);
+ void fillStr2MAC(uint8_t *mac, const char *str);
+diff --git a/wled00/json.cpp b/wled00/json.cpp
+index 19c40a3..17e95ce 100644
+--- a/wled00/json.cpp
++++ b/wled00/json.cpp
+@@ -915,6 +915,25 @@ void serializeInfo(JsonObject root)
+     sprintf(s, "%d.%d.%d.%d", localIP[0], localIP[1], localIP[2], localIP[3]);
+   }
+   root["ip"] = s;
++
++#ifdef WLED_USE_W5500
++  // Dual-interface builds run WiFi and W5500 Ethernet at the same time, but "ip" above can only
++  // carry one address (Network.localIP() prefers Ethernet when it has a lease). Report each
++  // interface separately so both are visible in the UI - otherwise the Ethernet address is only
++  // discoverable over USB serial or by digging through DHCP server logs.
++  if (WiFi.localIP()[0] != 0) {
++    IPAddress wip = WiFi.localIP();
++    char w[16] = "";
++    sprintf(w, "%d.%d.%d.%d", wip[0], wip[1], wip[2], wip[3]);
++    root[F("wifiip")] = w;
++  }
++  if (w5500IsConnected()) {
++    IPAddress eip = w5500LocalIP();
++    char e[16] = "";
++    sprintf(e, "%d.%d.%d.%d", eip[0], eip[1], eip[2], eip[3]);
++    root[F("ethip")] = e;
++  }
++#endif
+ }
+ 
+ static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
+diff --git a/wled00/network.cpp b/wled00/network.cpp
+index 606fa65..479ffac 100644
+--- a/wled00/network.cpp
++++ b/wled00/network.cpp
+@@ -175,6 +175,26 @@ const ethernet_settings ethernetBoards[] = {
+     ETH_PHY_LAN8720,     // eth_type
+     ETH_CLOCK_GPIO0_IN   // eth_clk_mode
+   },
++
++ // WLED_ETH_WAVESHARE_S3_ETH_W5500 (16) - Waveshare ESP32-S3-ETH, W5500 SPI Ethernet
++ // Placeholder entry only: W5500 is SPI-attached, not RMII, so none of these fields are used.
++ // initEthernet() intercepts this ethernetType before this table is read; real pin config comes
++ // from the W5500_* build flags (see initW5500Ethernet() below). Kept present (rather than
++ // omitted) so WLED_NUM_ETH_TYPES stays consistent with this table's actual size - the
++ // static_assert right below requires it.
++  {
++    0,                   // eth_address (unused)
++    -1,                  // eth_power (unused)
++    -1,                  // eth_mdc (unused)
++    -1,                  // eth_mdio (unused)
++    ETH_PHY_LAN8720,     // eth_type (unused; W5500 path never reads this)
++    // eth_clk_mode: deliberately NOT ETH_CLOCK_GPIO0_*. Although initEthernet() never reads
++    // this field on the W5500 path, xml.cpp's reserved-pin reporting DOES switch on it, and
++    // the GPIO0 cases make the UI reserve GPIO0 - blocking it as an LED data pin for a clock
++    // signal that does not exist on a SPI-attached part. GPIO17_OUT is inert here because
++    // xml.cpp's W5500 branch returns before reaching this switch.
++    ETH_CLOCK_GPIO17_OUT // eth_clk_mode (unused)
++  },
+ };
+ 
+ // sanity checks for ethernet config table and WLED_ETH_DEFAULT
+@@ -201,6 +221,12 @@ bool initEthernet()
+ 
+   DEBUG_PRINTF_P(PSTR("initE: Attempting ETH config: %d\n"), ethernetType);
+ 
++#ifdef WLED_USE_W5500
++  if (ethernetType == WLED_ETH_WAVESHARE_S3_ETH_W5500) {
++    return initW5500Ethernet();
++  }
++#endif
++
+   // Ethernet initialization should only succeed once -- else reboot required
+   ethernet_settings es = ethernetBoards[ethernetType];
+   managed_pin_type pinsToAllocate[10] = {
+@@ -287,6 +313,212 @@ bool initEthernet()
+ #endif
+ 
+ 
++#ifdef WLED_USE_W5500
++// Waveshare ESP32-S3-ETH: W5500 SPI Ethernet, driven through its own onboard hardware
++// TCP/IP socket engine (WIZnet Arduino Ethernet library), not through ESP32's native
++// ETH/lwIP path. AsyncTCP is hardwired to lwIP and cannot bind to the W5500's separate
++// stack, so WiFi remains the interface for Web UI/WebSockets/JSON API/OTA; the W5500
++// carries realtime UDP LED protocols (E1.31/Art-Net/DDP) and MQTT. See
++// targets/waveshare-esp32s3-eth/v16/notes.md for the full rationale.
++#include <SPI.h>
++#include <Ethernet_Generic.h>
++
++static bool w5500Configured  = false;
++static bool w5500PinsTaken   = false;
++static bool w5500SpiReady    = false;
++
++bool initW5500Ethernet() {
++  if (w5500Configured) return false;
++
++  // Settle delay carried over verbatim from the validated v0.15.1 driver. initEthernet() runs
++  // during boot config load, and the W5500 needs the rail/clock to stabilize before its
++  // registers answer reliably over SPI. Do not remove: without it the chip is not ready when
++  // linkStatus() is first read, which reports Unknown rather than a real link state.
++  delay(100);
++
++  DEBUG_PRINTF_P(PSTR("initW5500: pins MISO:%d MOSI:%d SCLK:%d CS:%d RST:%d INT:%d\n"),
++    W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
++
++  managed_pin_type w5500Pins[6] = {
++    { W5500_CS,   true },  // CS   (output)
++    { W5500_MOSI, true },  // MOSI (output)
++    { W5500_MISO, false }, // MISO (input)
++    { W5500_SCLK, true },  // SCLK (output)
++    { W5500_RST,  true },  // RST  (output)
++    { W5500_INT,  false }, // INT  (input, optional)
++  };
++
++  if (!w5500PinsTaken) {
++    if (!PinManager::allocateMultiplePins(w5500Pins, 6, PinOwner::Ethernet)) {
++      DEBUG_PRINTLN(F("initW5500: failed to allocate SPI pins"));
++      return false;
++    }
++    w5500PinsTaken = true;
++  }
++
++  if (!w5500SpiReady) {
++    pinMode(W5500_RST, OUTPUT);
++    digitalWrite(W5500_RST, LOW);
++    delay(50);
++    digitalWrite(W5500_RST, HIGH);
++    delay(150);
++
++    SPI.begin(W5500_SCLK, W5500_MISO, W5500_MOSI, W5500_CS);
++    SPI.setFrequency(10000000); // 10 MHz - lower speed for stability
++    delay(50);                  // let the SPI bus settle before first chip access (v0.15.1)
++    pinMode(W5500_CS, OUTPUT);
++    digitalWrite(W5500_CS, HIGH);
++    Ethernet.init(W5500_CS);
++    delay(100);
++    w5500SpiReady = true;
++  }
++
++  // Check link status BEFORE Ethernet.begin() so an unplugged cable can't block boot/WiFi.
++  // v0.15.1 tested "== LinkOFF" here; this requires a definitively-up link instead. The two
++  // differ only for Unknown, which linkStatus() returns when the chip does not answer chip-ID
++  // detection - and treating Unknown as "maybe up" falls through to the blocking DHCP call
++  // below. That call runs during boot (initEthernet() is invoked from deserializeConfig()), so
++  // blocking there long enough trips the hardware watchdog; since ethernetType is persisted,
++  // the next boot re-enters the same path - a self-sustaining boot loop (rst:0x7
++  // TG0WDT_SYS_RST) recoverable only by erasing flash. Kept as a deliberate guard, but note
++  // the settle delays above are what actually keep Unknown from occurring in normal operation.
++  // Probe/initialize the W5500 before asking it anything. Ethernet_Generic's
++  // W5100Class::getLinkStatus() opens with "if (!initialized) return UNKNOWN;", and
++  // "initialized" is only set inside W5100::init() - which the library otherwise calls
++  // lazily from Ethernet.begin(). Checking linkStatus() before begin() therefore returns
++  // UNKNOWN unconditionally, regardless of the real cable state, making the link check
++  // below useless and leaving the interface permanently "down" even with a live link.
++  // (The v0.15.1 driver checked link before begin() too, but it used the stock Arduino
++  // Ethernet library, whose linkStatus() has no such guard - the library swap changed this
++  // contract.) init() is idempotent, so calling it here is safe and cheap.
++  W5100.init(MAX_SOCK_NUM, W5500_CS);
++
++  // Report chip detection and link state separately - they are different failures with
++  // different causes, and a single "link not up" message cannot tell them apart:
++  //   hardwareStatus 0 (NoHardware) = the W5500 never answered over SPI at all -> wiring, SPI
++  //     pins, reset timing or bus contention. Link state is meaningless in this case.
++  //   hardwareStatus 3 (W5500)      = chip is detected and talking; then linkStatus decides:
++  //     0 Unknown / 2 LinkOFF = no cable or no partner; 1 LinkON = ready.
++  {
++    const int hw = (int)Ethernet.hardwareStatus();
++    const int ls = (int)Ethernet.linkStatus();
++    DEBUG_PRINTF_P(PSTR("initW5500: hardwareStatus=%d (0=none,1=W5100,2=W5200,3=W5500,4=W5100S) linkStatus=%d (0=unknown,1=up,2=down)\n"), hw, ls);
++    if (hw == 0) {
++      DEBUG_PRINTLN(F("initW5500: W5500 NOT DETECTED over SPI - check wiring/pins, not the cable"));
++      return false;
++    }
++    if (ls != LinkON) {
++      DEBUG_PRINTLN(F("initW5500: chip OK but link is down - check cable/switch; retrying via handleW5500()"));
++      return false; // keep pins/SPI initialized so hot-plug retry can pick up cleanly
++    }
++  }
++
++  uint8_t mac[6];
++  uint64_t chipid = ESP.getEfuseMac();
++  mac[0] = 0x02; // locally administered
++  mac[1] = 0x00;
++  mac[2] = (chipid >> 32) & 0xFF;
++  mac[3] = (chipid >> 16) & 0xFF;
++  mac[4] = (chipid >> 8)  & 0xFF;
++  mac[5] =  chipid        & 0xFF;
++
++  // Timeouts carried over verbatim from the validated v0.15.1 driver. This blocks, and
++  // initEthernet() runs during boot config load - but it is only reached once the link is
++  // confirmed up, so it does not run on a disconnected board.
++  if (Ethernet.begin(mac, 15000, 4000) == 0) { // 15s DHCP timeout, 4s per-response timeout
++    DEBUG_PRINTLN(F("initW5500: DHCP timeout"));
++    for (auto& pin : w5500Pins) PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
++    w5500PinsTaken = false;
++    w5500SpiReady  = false;
++    return false;
++  }
++
++  if (Ethernet.localIP() == INADDR_NONE) {
++    DEBUG_PRINTLN(F("initW5500: no IP address after DHCP"));
++    for (auto& pin : w5500Pins) PinManager::deallocatePin(pin.pin, PinOwner::Ethernet);
++    w5500PinsTaken = false;
++    w5500SpiReady  = false;
++    return false;
++  }
++
++  w5500Configured = true;
++  // Full interface dump, as in v0.15.1 - subnet/gateway/DNS are what you actually need when
++  // diagnosing "got a lease but nothing routes" on this board.
++  DEBUG_PRINTF_P(PSTR("initW5500: *** connected ***\n"));
++  DEBUG_PRINTF_P(PSTR("  IP:      %d.%d.%d.%d\n"),
++    Ethernet.localIP()[0], Ethernet.localIP()[1], Ethernet.localIP()[2], Ethernet.localIP()[3]);
++  DEBUG_PRINTF_P(PSTR("  Subnet:  %d.%d.%d.%d\n"),
++    Ethernet.subnetMask()[0], Ethernet.subnetMask()[1], Ethernet.subnetMask()[2], Ethernet.subnetMask()[3]);
++  DEBUG_PRINTF_P(PSTR("  Gateway: %d.%d.%d.%d\n"),
++    Ethernet.gatewayIP()[0], Ethernet.gatewayIP()[1], Ethernet.gatewayIP()[2], Ethernet.gatewayIP()[3]);
++  DEBUG_PRINTF_P(PSTR("  DNS:     %d.%d.%d.%d\n"),
++    Ethernet.dnsServerIP()[0], Ethernet.dnsServerIP()[1], Ethernet.dnsServerIP()[2], Ethernet.dnsServerIP()[3]);
++  return true;
++}
++
++// Polls the W5500 for hot-plug (cable inserted after boot) and services its DHCP lease.
++// Call once per WLED::loop() iteration; internally rate-limited to every 500ms.
++void handleW5500() {
++  static bool          wasConnected    = false;
++  static unsigned long lastPoll        = 0;
++  static unsigned long lastInitAttempt = 0;
++
++  if (millis() - lastPoll < 500) return;
++  lastPoll = millis();
++
++  // Only act when this board is actually selected as the Ethernet type. Without this the
++  // driver would grab the SPI pins on any build that merely compiles WLED_USE_W5500 in.
++  if (ethernetType != WLED_ETH_WAVESHARE_S3_ETH_W5500) return;
++
++  if (!w5500Configured) {
++    if (millis() - lastInitAttempt > 5000) {
++      lastInitAttempt = millis();
++      // Do NOT gate this on w5500SpiReady: that flag is only ever set inside
++      // initW5500Ethernet(), so gating on it here made the retry unable to bootstrap itself -
++      // if init never ran at boot (Ethernet type not yet selected, or selected without a
++      // reboot), SPI was never initialized, so linkStatus() could not be trusted and init was
++      // never retried. initW5500Ethernet() is idempotent and performs its own SPI setup, so
++      // call it directly and let it decide; it returns early and cheaply when there is no link.
++      if (!w5500SpiReady) {
++        DEBUG_PRINTLN(F("handleW5500: SPI not initialized yet, bootstrapping W5500"));
++        initW5500Ethernet();
++      } else if (Ethernet.linkStatus() == LinkON) {
++        DEBUG_PRINTLN(F("handleW5500: cable detected, retrying init"));
++        initW5500Ethernet();
++      }
++    }
++    return;
++  }
++
++  Ethernet.maintain(); // renew DHCP lease
++
++  bool isConnected = (Ethernet.localIP() != INADDR_NONE && Ethernet.linkStatus() == LinkON);
++  if (isConnected && !wasConnected) {
++    DEBUG_PRINTLN(F("handleW5500: link up"));
++    showWelcomePage = false;
++    wasConnected = true;
++  } else if (!isConnected && wasConnected) {
++    DEBUG_PRINTLN(F("handleW5500: link down"));
++    wasConnected = false;
++    // Deliberately do not touch WiFi here: WiFi's own handleConnection() logic manages
++    // itself independently (see wled.cpp), since it is already the always-on interface.
++  }
++}
++
++// Wrappers consumed by Network.cpp - see the ODR note on these in fcn_declare.h.
++bool w5500IsConnected() { return Ethernet.localIP()[0] != 0; }
++IPAddress w5500LocalIP() { return Ethernet.localIP(); }
++IPAddress w5500SubnetMask() { return Ethernet.subnetMask(); }
++IPAddress w5500GatewayIP() { return Ethernet.gatewayIP(); }
++bool w5500MacAddress(uint8_t* mac) {
++  if (Ethernet.localIP()[0] == 0) return false;
++  Ethernet.MACAddress(mac);
++  for (uint8_t i = 0; i < 6; i++) if (mac[i] != 0x00) return true;
++  return false;
++}
++#endif // WLED_USE_W5500
++
++
+ //by https://github.com/tzapu/WiFiManager/blob/master/WiFiManager.cpp
+ int getSignalQuality(int rssi)
+ {
+diff --git a/wled00/src/dependencies/network/Network.cpp b/wled00/src/dependencies/network/Network.cpp
+index dbc2707..3b643d7 100644
+--- a/wled00/src/dependencies/network/Network.cpp
++++ b/wled00/src/dependencies/network/Network.cpp
+@@ -1,8 +1,26 @@
+ #include "Network.h"
++// Note: W5500 support does NOT include Ethernet_Generic.h here on purpose - it's an h-only
++// library (definitions live in its headers), so including it from more than one .cpp causes
++// ODR/"multiple definition" link errors. network.cpp is its only #include site; the w5500*()
++// wrapper functions defined there are declared locally below (this file intentionally stays
++// decoupled from wled.h/fcn_declare.h, so they aren't pulled in through there).
++#ifdef WLED_USE_W5500
++bool w5500IsConnected();
++IPAddress w5500LocalIP();
++IPAddress w5500SubnetMask();
++IPAddress w5500GatewayIP();
++bool w5500MacAddress(uint8_t* mac);
++#endif
+ 
+ IPAddress NetworkClass::localIP()
+ {
+   IPAddress localIP;
++#ifdef WLED_USE_W5500
++  localIP = w5500LocalIP();
++  if (localIP[0] != 0) {
++    return localIP;
++  }
++#endif
+ #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
+   localIP = ETH.localIP();
+   if (localIP[0] != 0) {
+@@ -19,6 +37,11 @@ IPAddress NetworkClass::localIP()
+ 
+ IPAddress NetworkClass::subnetMask()
+ {
++#ifdef WLED_USE_W5500
++  if (w5500IsConnected()) {
++    return w5500SubnetMask();
++  }
++#endif
+ #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
+   if (ETH.localIP()[0] != 0) {
+     return ETH.subnetMask();
+@@ -32,6 +55,11 @@ IPAddress NetworkClass::subnetMask()
+ 
+ IPAddress NetworkClass::gatewayIP()
+ {
++#ifdef WLED_USE_W5500
++  if (w5500IsConnected()) {
++    return w5500GatewayIP();
++  }
++#endif
+ #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
+   if (ETH.localIP()[0] != 0) {
+       return ETH.gatewayIP();
+@@ -45,6 +73,11 @@ IPAddress NetworkClass::gatewayIP()
+ 
+ void NetworkClass::localMAC(uint8_t* MAC)
+ {
++#ifdef WLED_USE_W5500
++  if (w5500MacAddress(MAC)) {
++    return;
++  }
++#endif
+ #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
+   // ETH.macAddress(MAC); // Does not work because of missing ETHClass:: in ETH.ccp
+ 
+@@ -78,10 +111,13 @@ bool NetworkClass::isConnected()
+ 
+ bool NetworkClass::isEthernet()
+ {
++#ifdef WLED_USE_W5500
++  if (w5500IsConnected()) return true;
++#endif
+ #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
+   return (ETH.localIP()[0] != 0) && ETH.linkUp();
+ #endif
+   return false;
+ }
+ 
+-NetworkClass Network;
+\ No newline at end of file
++NetworkClass Network;
+diff --git a/wled00/wled.cpp b/wled00/wled.cpp
+index 308c939..63797a2 100644
+--- a/wled00/wled.cpp
++++ b/wled00/wled.cpp
+@@ -62,6 +62,9 @@ void WLED::loop()
+   handleIR();        // 2nd call to function needed for ESP32 to return valid results -- should be good for ESP8266, too
+   #endif
+   handleConnection();
++  #ifdef WLED_USE_W5500
++  handleW5500();     // service W5500 hot-plug + DHCP lease (Waveshare ESP32-S3-ETH)
++  #endif
+   #ifdef WLED_ENABLE_ADALIGHT
+   handleSerial();
+   #endif
+@@ -924,7 +927,17 @@ void WLED::handleConnection()
+     }
+   }
+ 
+-  if (!Network.isConnected()) {
++#ifdef WLED_USE_W5500
++  // W5500 hardware-socket Ethernet is a separate TCP/IP stack from lwIP (see network.cpp) -
++  // Network.isConnected() would report "connected" once either interface is up and then this
++  // code would stop retrying WiFi. Both interfaces need to run simultaneously here, so drive
++  // WiFi reconnection off WiFi's own status instead of the combined Network state.
++  bool wifiNeedsReconnect = (WiFi.status() != WL_CONNECTED);
++#else
++  bool wifiNeedsReconnect = !Network.isConnected();
++#endif
++
++  if (wifiNeedsReconnect) {
+     if (interfacesInited) {
+       if (scanDone && multiWiFi.size() > 1) {
+         DEBUG_PRINTLN(F("WiFi scan initiated on disconnect."));
+diff --git a/wled00/xml.cpp b/wled00/xml.cpp
+index 03d4cd1..2135142 100644
+--- a/wled00/xml.cpp
++++ b/wled00/xml.cpp
+@@ -132,6 +132,18 @@ static void appendGPIOinfo(Print& settingsScript)
+   firstPin = false;
+   #endif
+   #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
++  #ifdef WLED_USE_W5500
++  if (ethernetType == WLED_ETH_WAVESHARE_S3_ETH_W5500) {
++    // SPI-attached PHY: none of the RMII plumbing below applies. Report only the pins the
++    // W5500 genuinely occupies. Reporting the RMII set here would reserve GPIO 19/21/22/25/26/27
++    // for a bus this board does not have, and the eth_clk_mode switch further down would
++    // reserve GPIO0 for a clock that does not exist on a SPI part - making those pins
++    // unusable for LED output in the UI even though the firmware allocates them happily.
++    if (!firstPin) settingsScript.print(',');
++    settingsScript.printf("%d,%d,%d,%d,%d,%d", W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
++    firstPin = false;
++  } else
++  #endif
+   if (ethernetType != WLED_ETH_NONE && ethernetType < WLED_NUM_ETH_TYPES) {
+     if (!firstPin) settingsScript.print(',');
+     for (unsigned p=0; p<WLED_ETH_RSVD_PINS_COUNT; p++) { settingsScript.printf("%d,",esp32_nonconfigurable_ethernet_pins[p].pin); }

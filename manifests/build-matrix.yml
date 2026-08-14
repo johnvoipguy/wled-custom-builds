@@ -37,12 +37,13 @@ targets:
       platformio_env_fragment: targets/waveshare-esp32s3-eth/shared/platformio.env.ini
       usermods: []
       partitions: []
+      note: shared/ is the v15 line's source of truth only; v16 has its own env fragment (see v16 notes below).
     versions:
       - version: v15
         wled_line: 0.15.x
         platformio_env: waveshare_esp32s3_eth
-        notes: Active Waveshare line. Canonical env is in shared/platformio.env.ini; v15 owns preserved legacy firmware assets.
+        notes: Preserved/frozen legacy line. Canonical env is in shared/platformio.env.ini; v15 owns preserved legacy firmware assets. Not actively developed against.
       - version: v16
-        wled_line: 16.x / main
+        wled_line: 16.0.1
         platformio_env: waveshare_esp32s3_eth
-        notes: Future placeholder only; Waveshare migration and preserved assets are currently v15-focused.
+        notes: Active Waveshare line. W5500 ported from waveshare-esp32s3-eth-v15.1 with a real hardware-socket driver; own env/patches/lib under targets/waveshare-esp32s3-eth/v16 (not shared/). Compiles clean against wled/WLED v16.0.1; not yet hardware-validated. See v16/notes.md.
