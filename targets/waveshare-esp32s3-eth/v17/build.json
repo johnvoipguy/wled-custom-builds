@@ -1,0 +1,5 @@
+{
+  "environment": "waveshare_esp32s3_eth_v5",
+  "wled_ref": "main",
+  "wled_repo": "https://github.com/wled/WLED.git"
+}

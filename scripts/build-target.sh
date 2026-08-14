@@ -467,25 +467,33 @@ merge_full_image_for_env() {
   #  1) PlatformIO tool package executable: ~/.platformio/packages/tool-esptoolpy/esptool
   #  2) PlatformIO tool package directory: ~/.platformio/packages/tool-esptoolpy/esptool/esptool.py
   #  3) esptool on PATH
-  #  4) python3 -m esptool
+  #  4) PlatformIO Core's own venv: ~/.platformio/penv/bin/python3 -m esptool (newer
+  #     platform-espressif32/pioarduino releases vendor esptool inside the platform package
+  #     rather than as a separate tool-esptoolpy package, so (1)/(2) can both be absent even
+  #     though esptool is fully available via the venv PlatformIO itself runs on)
+  #  5) python3 -m esptool
   local esptool_cmd=()
   local pio_home="${PLATFORMIO_HOME_DIR:-$HOME/.platformio}"
   local pio_esptool="$pio_home/packages/tool-esptoolpy/esptool"
   local pio_esptool_py="$pio_home/packages/tool-esptoolpy/esptool/esptool.py"
+  local pio_venv_python="$pio_home/penv/bin/python3"
 
   echo "esptool probe: esptool path is_dir=$( [ -d \"$pio_esptool\" ] && echo yes || echo no ) is_file=$( [ -f \"$pio_esptool\" ] && echo yes || echo no )"
   echo "esptool probe: esptool.py exists=$( [ -f \"$pio_esptool_py\" ] && echo yes || echo no )"
+  echo "esptool probe: pio venv python exists=$( [ -x \"$pio_venv_python\" ] && echo yes || echo no )"
 
-  if [ -f "$pio_esptool" ] && [ -x "$pio_esptool" ]; then
+  if [ -f "$pio_esptool" ] && [ -x "$pio_esptool" ] && "$pio_esptool" version >/dev/null 2>&1; then
     esptool_cmd=("$pio_esptool")
-  elif [ -f "$pio_esptool_py" ]; then
+  elif [ -f "$pio_esptool_py" ] && python3 "$pio_esptool_py" version >/dev/null 2>&1; then
     esptool_cmd=(python3 "$pio_esptool_py")
-  elif command -v esptool >/dev/null 2>&1; then
+  elif "$pio_venv_python" -m esptool version >/dev/null 2>&1; then
+    esptool_cmd=("$pio_venv_python" -m esptool)
+  elif command -v esptool >/dev/null 2>&1 && esptool version >/dev/null 2>&1; then
     esptool_cmd=(esptool)
   elif python3 -m esptool version >/dev/null 2>&1; then
     esptool_cmd=(python3 -m esptool)
   else
-    die "merge_full_image ($env_name): cannot locate esptool — ensure PlatformIO is installed or esptool is on PATH"
+    die "merge_full_image ($env_name): cannot locate a working esptool — ensure PlatformIO is installed or a working esptool is on PATH"
   fi
 
   # esptool renamed this subcommand and its flags between major versions: v4.x uses

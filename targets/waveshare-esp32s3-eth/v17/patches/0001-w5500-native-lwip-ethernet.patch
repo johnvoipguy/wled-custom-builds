@@ -1,0 +1,452 @@
+diff --git a/wled00/bus_manager.cpp b/wled00/bus_manager.cpp
+index f8cacc7..b17b208 100644
+--- a/wled00/bus_manager.cpp
++++ b/wled00/bus_manager.cpp
+@@ -1346,7 +1346,32 @@ uint8_t BusManager::getI(uint8_t busType, const uint8_t* pins, uint8_t driverPre
+ void BusManager::removeAll() {
+   DEBUGBUS_PRINTLN(F("Removing all."));
+   //prevents crashes due to deleting busses while in use.
+-  while (!canAllShow()) yield();
++  // Permanent safety net: bounded wait instead of an unconditional infinite spin, so a
++  // stuck bus (root cause of one prior instance: NeoEsp32RmtXMethod.h mem_block_symbols
++  // over-allocation on ESP32-S3, now fixed) can never hang loop() forever again.
++  {
++    unsigned long _dbgStart = millis();
++    unsigned long _dbgLastReport = 0;
++    while (!canAllShow()) {
++      if (millis() - _dbgStart > 3000) {
++        DEBUG_PRINTLN(F("DBG removeAll: canAllShow() stuck >3s, per-bus status:"));
++        for (size_t i = 0; i < busses.size(); i++) {
++          Bus *b = busses[i].get();
++          uint8_t pins[5] = {255,255,255,255,255};
++          b->getPins(pins);
++          DEBUG_PRINTF_P(PSTR("DBG   bus[%u] type=%u pin0=%u canShow=%d\n"),
++                         (unsigned)i, (unsigned)b->getType(), (unsigned)pins[0], (int)b->canShow());
++        }
++        DEBUG_PRINTLN(F("DBG removeAll: giving up wait, proceeding to clear anyway."));
++        break;
++      }
++      if (millis() - _dbgLastReport > 500) {
++        _dbgLastReport = millis();
++        DEBUG_PRINTLN(F("DBG removeAll: still waiting on canAllShow()..."));
++      }
++      yield();
++    }
++  }
+   busses.clear();
+   #ifndef ESP8266
+   // Reset channel tracking for fresh allocation
+diff --git a/wled00/const.h b/wled00/const.h
+index 00a6b4d..390a92d 100644
+--- a/wled00/const.h
++++ b/wled00/const.h
+@@ -417,7 +417,7 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
+ #define BTN_TYPE_TOUCH_SWITCH     9
+ 
+ //Ethernet board types
+-#define WLED_NUM_ETH_TYPES        16
++#define WLED_NUM_ETH_TYPES        17
+ 
+ 
+ #define WLED_ETH_NONE              0
+@@ -436,6 +436,9 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
+ #define WLED_ETH_GLEDOPTO         13
+ #define WLED_ETH_QUINLED_V4_UNOQUAD  14
+ #define WLED_ETH_QUINLED_V4_OCTA     15
++// SPI-attached PHY (not RMII). Appended, never backfilled into a reused index - 13 is
++// WLED_ETH_GLEDOPTO in 16.x/17.x and reusing it would silently select a different board.
++#define WLED_ETH_WAVESHARE_S3_ETH_W5500 16
+ 
+ 
+ //Hue error codes
+diff --git a/wled00/data/index.js b/wled00/data/index.js
+index 6e2fbf3..5e0c484 100644
+--- a/wled00/data/index.js
++++ b/wled00/data/index.js
+@@ -732,6 +732,7 @@ ${i.leds.count?inforow("Total LEDs",i.leds.count):""}
+ ${inforow("Estimated current",pwru)}
+ ${inforow("Average FPS",i.leds.fps)}
+ <tr><td colspan=2><hr class="sml"></td></tr>
++${(i.wifiip&&i.ethip)?inforow("WiFi IP",i.wifiip)+inforow("Ethernet IP",i.ethip):(i.ip?inforow("IP address",i.ip):"")}
+ ${inforow("MAC address",i.mac)}
+ ${inforow("CPU clock",i.clock," MHz")}
+ ${inforow("Flash size",i.flash," MB")}
+diff --git a/wled00/data/settings_wifi.htm b/wled00/data/settings_wifi.htm
+index bdd8255..cb29397 100644
+--- a/wled00/data/settings_wifi.htm
++++ b/wled00/data/settings_wifi.htm
+@@ -241,6 +241,7 @@ Static subnet mask:<br>
+ 			<option value="3">WESP32</option>
+ 			<option value="1">WT32-ETH01</option>
+ 			<option value="13">Gledopto</option>
++			<option value="16">Waveshare ESP32-S3-ETH (W5500)</option>
+ 		</select><br><br>
+ 	</div>
+ 	<div class="sec">
+diff --git a/wled00/fcn_declare.h b/wled00/fcn_declare.h
+index 3409ff9..5630df6 100644
+--- a/wled00/fcn_declare.h
++++ b/wled00/fcn_declare.h
+@@ -315,6 +315,9 @@ void espNowReceiveCB(uint8_t* address, uint8_t* data, uint8_t len, signed int rs
+ 
+ //network.cpp
+ bool initEthernet(); // result is informational
++#if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
++void handleW5500(); // deferred W5500 bring-up, called from WLED::loop()
++#endif
+ int  getSignalQuality(int rssi);
+ void fillMAC2Str(char *str, const uint8_t *mac);
+ void fillStr2MAC(uint8_t *mac, const char *str);
+diff --git a/wled00/json.cpp b/wled00/json.cpp
+index c999dd8..b6c1623 100644
+--- a/wled00/json.cpp
++++ b/wled00/json.cpp
+@@ -937,6 +937,24 @@ void serializeInfo(JsonObject root)
+     sprintf(s, "%d.%d.%d.%d", localIP[0], localIP[1], localIP[2], localIP[3]);
+   }
+   root["ip"] = s;
++
++#ifdef WLED_USE_W5500
++  // Dual-stack board: WiFi and W5500 Ethernet can both hold addresses, but "ip" above carries
++  // only one. Report each separately so the Ethernet address is discoverable from the UI
++  // instead of only over USB serial or from the DHCP server's lease table.
++  if (WiFi.localIP()[0] != 0) {
++    IPAddress wip = WiFi.localIP();
++    char w[16] = "";
++    sprintf(w, "%d.%d.%d.%d", wip[0], wip[1], wip[2], wip[3]);
++    root[F("wifiip")] = w;
++  }
++  if (ETH.localIP()[0] != 0) {
++    IPAddress eip = ETH.localIP();
++    char e[16] = "";
++    sprintf(e, "%d.%d.%d.%d", eip[0], eip[1], eip[2], eip[3]);
++    root[F("ethip")] = e;
++  }
++#endif
+ }
+ 
+ static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
+diff --git a/wled00/network.cpp b/wled00/network.cpp
+index eed19aa..de8ac65 100644
+--- a/wled00/network.cpp
++++ b/wled00/network.cpp
+@@ -176,11 +176,54 @@ const ethernet_settings ethernetBoards[] = {
+     ETH_PHY_LAN8720,     // eth_type
+     ETH_CLOCK_GPIO0_IN   // eth_clk_mode
+   },
++
++ // WLED_ETH_WAVESHARE_S3_ETH_W5500 (16) - Waveshare ESP32-S3-ETH, W5500 over SPI
++ // SPI-attached PHY: the RMII fields below are unused. eth_type is the discriminator that
++ // routes initEthernet() down the SPI path; the SPI pins come from the W5500_* build flags.
++  {
++    1,                   // eth_address (PHY addr; W5500 uses 1)
++    -1,                  // eth_power (unused - RST is driven via W5500_RST)
++    -1,                  // eth_mdc  (unused on SPI)
++    -1,                  // eth_mdio (unused on SPI)
++    ETH_PHY_W5500,       // eth_type <- selects the SPI path
++    ETH_CLOCK_GPIO0_IN   // eth_clk_mode (unused on SPI)
++  },
+ };
+ 
+ // sanity checks for ethernet config table and WLED_ETH_DEFAULT
+ static_assert((sizeof(ethernetBoards)/sizeof(ethernetBoards[0])) == WLED_NUM_ETH_TYPES, "WLED_NUM_ETH_TYPES does not match size of ethernetBoards[] table.");
+ 
++#elif defined(WLED_USE_W5500) && defined(CONFIG_ETH_SPI_ETHERNET_W5500) && CONFIG_ETH_SPI_ETHERNET_W5500
++
++// SoCs without an internal EMAC (ESP32-S3/S2/C3/...) cannot use the RMII table above at all:
++// ETH_PHY_LAN8720 and every other RMII PHY constant live behind CONFIG_ETH_USE_ESP32_EMAC in
++// the core's ETH.h, so that table does not even compile here. Only SPI-attached PHYs exist.
++// This is why WLED's Ethernet support has been effectively ESP32-classic-only.
++//
++// The table is kept the same length as the classic one so WLED_NUM_ETH_TYPES, the settings
++// dropdown values and any persisted ethernetType stay index-compatible across platforms.
++// Unusable slots are filled with ETH_PHY_MAX, which initEthernet() rejects.
++// cfg.cpp and xml.cpp iterate this unconditionally to report reserved pins to the UI, so it
++// must exist on every platform that compiles Ethernet. SPI-attached PHYs reserve no fixed
++// pins (they are configurable), so publish an all-invalid list rather than omitting it.
++const managed_pin_type esp32_nonconfigurable_ethernet_pins[WLED_ETH_RSVD_PINS_COUNT] = {
++  { -1, false }, { -1, false }, { -1, false }, { -1, false }, { -1, false }, { -1, false },
++};
++
++#define WLED_ETH_SPI_FILLER { 0, -1, -1, -1, ETH_PHY_MAX, 0 }
++const ethernet_settings ethernetBoards[] = {
++  WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER,
++  WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER,
++  WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER,
++  WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER, WLED_ETH_SPI_FILLER,
++  // WLED_ETH_WAVESHARE_S3_ETH_W5500 (16) - Waveshare ESP32-S3-ETH, W5500 over SPI.
++  // SPI pins come from the W5500_* build flags; the RMII fields here are unused.
++  { 1, -1, -1, -1, ETH_PHY_W5500, 0 },
++};
++#undef WLED_ETH_SPI_FILLER
++
++static_assert((sizeof(ethernetBoards)/sizeof(ethernetBoards[0])) == WLED_NUM_ETH_TYPES, "WLED_NUM_ETH_TYPES does not match size of ethernetBoards[] table.");
++
+ #elif CONFIG_IDF_TARGET_ESP32P4
+ // ToDO: add P4 specific ethernet options
+ #error "Ethernet is not yet supported on your ESP32-P4".
+@@ -193,6 +236,14 @@ static_assert((sizeof(ethernetBoards)/sizeof(ethernetBoards[0])) == WLED_NUM_ETH
+   static_assert(((WLED_ETH_DEFAULT) >= WLED_ETH_NONE) && ((WLED_ETH_DEFAULT) < WLED_NUM_ETH_TYPES), "WLED_ETH_DEFAULT is out of range.");
+ #endif
+ 
++#if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
++#ifndef WLED_W5500_RETRY_MS
++  #define WLED_W5500_RETRY_MS 10000   // re-attempt ETH.begin() this often until it succeeds
++#endif
++static bool w5500Pending = false;   // pins reserved, ETH.begin() still to run
++static bool w5500Started = false;   // ETH.begin() attempted
++#endif
++
+ bool initEthernet()
+ {
+   static bool successfullyConfiguredEthernet = false;
+@@ -213,6 +264,53 @@ bool initEthernet()
+ 
+   // Ethernet initialization should only succeed once -- else reboot required
+   ethernet_settings es = ethernetBoards[ethernetType];
++
++  if (es.eth_type == ETH_PHY_MAX) {   // unusable slot on this platform's table
++    DEBUG_PRINTF_P(PSTR("initE: ethernetType %d is not available on this MCU\n"), ethernetType);
++    return false;
++  }
++
++#if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
++  // SPI-attached PHY (W5500). Handled before the RMII path below because none of the RMII
++  // plumbing applies: the six esp32_nonconfigurable_ethernet_pins are RMII-only and must NOT
++  // be allocated here, and MDC/MDIO/clk_mode are meaningless on SPI.
++  //
++  // Unlike the 16.0.1 line - which had to drive the W5500's own hardware TCP/IP stack through
++  // a vendored Arduino Ethernet library, leaving it unreachable to lwIP-based code - Core 3.x
++  // exposes ETH_PHY_W5500 natively. The chip is used as a MAC/PHY behind esp_eth/lwIP, so the
++  // interface is a first-class netif: AsyncTCP/AsyncUDP, the web server, OTA, mDNS, MQTT and
++  // the realtime protocols all work over it with no per-protocol glue.
++  if (es.eth_type == ETH_PHY_W5500) {
++    managed_pin_type spiPins[6] = {
++      { W5500_CS,   true  },
++      { W5500_MOSI, true  },
++      { W5500_MISO, false },
++      { W5500_SCLK, true  },
++      { W5500_RST,  true  },
++      { W5500_INT,  false },
++    };
++    if (!PinManager::allocateMultiplePins(spiPins, 6, PinOwner::Ethernet)) {
++      DEBUG_PRINTLN(F("initE: failed to allocate W5500 SPI pins"));
++      return false;
++    }
++
++    DEBUG_PRINTF_P(PSTR("initE: W5500 SPI MISO:%d MOSI:%d SCLK:%d CS:%d RST:%d INT:%d @%dMHz (deferred)\n"),
++      W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT, (int)W5500_SPI_FREQ_MHZ);
++
++    // Do NOT call ETH.begin() here. initEthernet() runs from deserializeConfig() during early
++    // boot, before the network stack exists. On Core 2.x that was tolerated, but Core 3.x
++    // routes ETH through NetworkInterface/esp_netif - WLED main even had to rename its own
++    // Network class to WLEDNetwork to stop colliding with the core's Network manager. Calling
++    // ETH.begin() this early dereferences a null inside the core (LoadProhibited, EXCVADDR 0,
++    // crashing in a ROM string/mem routine) and bootloops the device.
++    // Pins are reserved now; the real bring-up happens from handleW5500() once loop() runs.
++    w5500Pending = true;
++    successfullyConfiguredEthernet = true; // don't re-enter this path on later config loads
++    return true;
++  }
++#endif
++#if defined(CONFIG_ETH_USE_ESP32_EMAC) && CONFIG_ETH_USE_ESP32_EMAC
++  // RMII path - only exists on SoCs with an internal EMAC (classic ESP32).
+   managed_pin_type pinsToAllocate[10] = {
+     // first six pins are non-configurable
+     esp32_nonconfigurable_ethernet_pins[0],
+@@ -301,6 +399,11 @@ bool initEthernet()
+     ETH.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+   }
+ 
++#else
++  // EMAC-less SoC: the only supported PHYs are SPI-attached and were handled above.
++  DEBUG_PRINTLN(F("initE: no RMII EMAC on this MCU"));
++  return false;
++#endif
+   successfullyConfiguredEthernet = true;
+   DEBUG_PRINTLN(F("initE: *** Ethernet successfully configured! ***"));
+   return true;
+@@ -308,6 +411,51 @@ bool initEthernet()
+ #endif
+ 
+ 
++#if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
++// Deferred W5500 bring-up. Called from WLED::loop(); runs ETH.begin() exactly once, after the
++// Arduino/esp_netif network stack is actually up. See the note in initEthernet() for why this
++// cannot happen during config load on Core 3.x.
++void handleW5500() {
++  if (!w5500Pending || w5500Started) return;
++
++  // Retry until begin() succeeds rather than giving up after one attempt. A single shot means
++  // any transient failure at boot leaves Ethernet dead until a power cycle - unacceptable on a
++  // board that may be bus-powered rather than PoE-cycled.
++  //
++  // Note this retry is only for ETH.begin() itself failing. Link state is NOT a reason to
++  // retry: unlike the 0.15.x hardware-socket driver, this is a real esp_eth/lwIP netif, so
++  // begin() succeeds with no cable attached and the driver raises ETH_CONNECTED / runs DHCP by
++  // itself whenever the link later comes up. That covers slow links - spanning-tree blocking
++  // for ~30s, PoE switch negotiation, cable replugged hours later - with no polling from us.
++  static unsigned long lastAttempt = 0;
++  if (lastAttempt != 0 && millis() - lastAttempt < WLED_W5500_RETRY_MS) return;
++  lastAttempt = millis();
++
++  DEBUG_PRINTLN(F("initW5500: starting deferred ETH.begin()"));
++  if (!ETH.begin(ETH_PHY_W5500, 1 /* phy addr */,
++                 W5500_CS, W5500_INT, W5500_RST, SPI2_HOST,
++                 W5500_SCLK, W5500_MISO, W5500_MOSI, (uint8_t)W5500_SPI_FREQ_MHZ)) {
++    DEBUG_PRINTF_P(PSTR("initW5500: ETH.begin() failed, retrying in %ums\n"), (unsigned)WLED_W5500_RETRY_MS);
++    return; // w5500Started stays false -> retried on a later loop()
++  }
++  w5500Started = true;
++
++  // Only touch ETH.config() when a static IP is actually configured; DHCP is already the
++  // default after a successful begin().
++  //
++  // NOTE the explicit (uint32_t) casts on the IPAddress operands. Writing the comparison the
++  // other way round - "multiWiFi[0].staticIP != (uint32_t)0x00000000", as WLED's RMII path
++  // still does - crashes on Arduino Core 3.x: the compiler treats the zero-valued constant as
++  // a null pointer constant and selects IPAddress::operator==(const uint8_t*), which memcmps
++  // against NULL. That is a hard LoadProhibited fault (memcmp(dest=0, src, 4)) the moment this
++  // line is reached, regardless of whether ETH.config() is ever called.
++  if ((uint32_t)multiWiFi[0].staticIP != 0u && (uint32_t)multiWiFi[0].staticGW != 0u) {
++    ETH.config(multiWiFi[0].staticIP, multiWiFi[0].staticGW, multiWiFi[0].staticSN, dnsAddress);
++  }
++  DEBUG_PRINTLN(F("initW5500: *** W5500 Ethernet started ***"));
++}
++#endif
++
+ //by https://github.com/tzapu/WiFiManager/blob/master/WiFiManager.cpp
+ int getSignalQuality(int rssi)
+ {
+diff --git a/wled00/set.cpp b/wled00/set.cpp
+index 5c459e5..3c1e409 100644
+--- a/wled00/set.cpp
++++ b/wled00/set.cpp
+@@ -248,6 +248,8 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
+       if (request->hasArg(lc) && request->arg(lc).toInt() > 0) {
+         t += length = request->arg(lc).toInt();
+       } else {
++        DEBUG_PRINTF_P(PSTR("DBG bus[%d] REJECTED: no/zero length (hasArg=%d val=%d) - loop breaks, later buses dropped\n"),
++                       s, (int)request->hasArg(lc), request->arg(lc).toInt());
+         break;  // no parameter
+       }
+       awmode = request->arg(aw).toInt();
+@@ -288,6 +290,8 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
+       // this may happen even before this loop is finished so we do "doInitBusses" after the loop
+       busConfigs.emplace_back(type, pins, start, length, colorOrder | (channelSwap<<4), request->hasArg(cv), skip, awmode, freq, maPerLed, maMax, driverType, text);
+       busesChanged = true;
++      DEBUG_PRINTF_P(PSTR("DBG bus[%d] accepted: pin0=%u type=%u len=%u start=%u -> busConfigs=%u\n"),
++                     s, (unsigned)pins[0], type, length, start, (unsigned)busConfigs.size());
+     }
+     //doInitBusses = busesChanged; // we will do that below to ensure all input data is processed
+ 
+@@ -422,6 +426,8 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
+     t = request->arg(F("BF")).toInt();
+     if (t > 0) briMultiplier = t;
+ 
++    DEBUG_PRINTF_P(PSTR("DBG LED save done: busesChanged=%d busConfigs=%u -> doInitBusses=%d\n"),
++                   (int)busesChanged, (unsigned)busConfigs.size(), (int)busesChanged);
+     doInitBusses = busesChanged;
+   }
+ 
+diff --git a/wled00/wled.cpp b/wled00/wled.cpp
+index f049eca..c403fe3 100644
+--- a/wled00/wled.cpp
++++ b/wled00/wled.cpp
+@@ -84,6 +84,9 @@ void WLED::loop()
+   handleIR();        // 2nd call to function needed for ESP32 to return valid results -- should be good for ESP8266, too
+   #endif
+   handleConnection();
++  #if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
++  handleW5500();   // deferred Ethernet bring-up (cannot run during early config load on Core 3.x)
++  #endif
+   #ifdef WLED_ENABLE_ADALIGHT
+   handleSerial();
+   #endif
+@@ -239,6 +242,7 @@ void WLED::loop()
+   if (doInitBusses) {
+     doInitBusses = false;
+     DEBUG_PRINTLN(F("Re-init busses."));
++    DEBUG_PRINTF_P(PSTR("DBG loop: entering finalizeInit, busConfigs=%u\n"), (unsigned)busConfigs.size());
+     bool aligned = strip.checkSegmentAlignment(); //see if old segments match old bus(ses)
+     strip.finalizeInit(); // will create buses and also load default ledmap if present
+     if (aligned) strip.makeAutoSegments();
+@@ -251,7 +255,7 @@ void WLED::loop()
+     loadLedmap = -1;
+   }
+   yield();
+-  if (configNeedsWrite) serializeConfigToFS();
++  if (configNeedsWrite) { DEBUG_PRINTLN(F("DBG loop: configNeedsWrite -> writing cfg.json")); serializeConfigToFS(); }
+ 
+   yield();
+   handleWs();
+diff --git a/wled00/wled.h b/wled00/wled.h
+index 62c9e15..345ca1d 100644
+--- a/wled00/wled.h
++++ b/wled00/wled.h
+@@ -803,7 +803,14 @@ WLED_GLOBAL bool e131NewData _INIT(false);
+ // led fx library object
+ WLED_GLOBAL WS2812FX   strip         _INIT(WS2812FX());
+ WLED_GLOBAL std::vector<BusConfig> busConfigs;    //temporary, to remember values from network callback until after
+-WLED_GLOBAL bool       doInitBusses  _INIT(false);
++// volatile: written by the AsyncTCP web-server task (handleSettingsSet) and read by loop(),
++// which run as different tasks and typically on different cores. Without volatile the compiler
++// may cache this read in a register or hoist it out of loop(), so the flag set by a settings
++// POST is never observed - finalizeInit() never runs, busConfigs is never cleared (it grows
++// without bound across saves) and the edited bus list is silently discarded, leaving the old
++// config to be written back. Latent for years; it becomes reproducible on the IDF5 platform
++// where the toolchain jumps from GCC 8.4 to GCC 15.2 and optimizes far more aggressively.
++WLED_GLOBAL volatile bool doInitBusses  _INIT(false);
+ WLED_GLOBAL int8_t     loadLedmap    _INIT(-1);
+ WLED_GLOBAL uint8_t    currentLedmap _INIT(0);
+ #ifndef ESP8266
+diff --git a/wled00/wled_ethernet.h b/wled00/wled_ethernet.h
+index 6b8f0ba..8a1a85c 100644
+--- a/wled00/wled_ethernet.h
++++ b/wled00/wled_ethernet.h
+@@ -17,6 +17,23 @@
+ //              ETH_CLOCK_GPIO0_OUT   == ESP32 provides 50MHz clock output via GPIO0
+ //              ETH_CLOCK_GPIO16_OUT  == ESP32 provides 50MHz clock output via GPIO16
+ //              ETH_CLOCK_GPIO17_OUT  == ESP32 provides 50MHz clock output via GPIO17
++// SoCs without an internal EMAC (ESP32-S3, S2, C3, ...) never define the RMII clock enum or
++// its constants - they live behind CONFIG_ETH_USE_ESP32_EMAC in the core's ETH.h. The shared
++// ethernet_settings struct below still carries eth_clk_mode, and cfg.cpp still references the
++// ETH_CLOCK_* names, so those targets fail to compile the moment WLED_USE_ETHERNET is enabled.
++// This is why Ethernet has effectively been ESP32-classic-only: it is RMII-shaped throughout.
++// SPI-attached PHYs (W5500) do not use any of it, so provide inert placeholders to let the
++// struct and its consumers compile; nothing reads these values on the SPI path.
++#if !defined(CONFIG_ETH_USE_ESP32_EMAC) || (CONFIG_ETH_USE_ESP32_EMAC == 0)
++  typedef int eth_clock_mode_t;
++  #ifndef ETH_CLOCK_GPIO0_IN
++    #define ETH_CLOCK_GPIO0_IN    0
++    #define ETH_CLOCK_GPIO0_OUT   1
++    #define ETH_CLOCK_GPIO16_OUT  2
++    #define ETH_CLOCK_GPIO17_OUT  3
++  #endif
++#endif
++
+ typedef struct EthernetSettings {
+   uint8_t        eth_address;
+   int            eth_power;
+diff --git a/wled00/xml.cpp b/wled00/xml.cpp
+index 04d57eb..5f1606c 100644
+--- a/wled00/xml.cpp
++++ b/wled00/xml.cpp
+@@ -132,6 +132,17 @@ static void appendGPIOinfo(Print& settingsScript)
+   firstPin = false;
+   #endif
+   #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
++  #ifdef WLED_USE_W5500
++  if (ethernetType == WLED_ETH_WAVESHARE_S3_ETH_W5500) {
++    // SPI-attached PHY: report only the pins the W5500 actually occupies. Falling through to
++    // the RMII branch below would emit the placeholder reserved-pin array (six -1 entries) and
++    // then hit the eth_clk_mode switch, whose ETH_CLOCK_GPIO0_* case reserves GPIO0 - blocking
++    // it as an LED data pin for an RMII clock signal that does not exist on a SPI part.
++    if (!firstPin) settingsScript.print(',');
++    settingsScript.printf("%d,%d,%d,%d,%d,%d", W5500_MISO, W5500_MOSI, W5500_SCLK, W5500_CS, W5500_RST, W5500_INT);
++    firstPin = false;
++  } else
++  #endif
+   if (ethernetType != WLED_ETH_NONE && ethernetType < WLED_NUM_ETH_TYPES) {
+     if (!firstPin) settingsScript.print(',');
+     for (unsigned p=0; p<WLED_ETH_RSVD_PINS_COUNT; p++) { settingsScript.printf("%d,",esp32_nonconfigurable_ethernet_pins[p].pin); }

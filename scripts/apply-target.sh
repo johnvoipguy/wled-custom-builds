@@ -56,11 +56,38 @@ apply_patches() {
 
   [ -d "$patches_dir" ] || return 0
 
+  local patch_files=()
   local patch_file
   for patch_file in "$patches_dir"/*.patch; do
     [ -f "$patch_file" ] || continue
+    patch_files+=("$patch_file")
+  done
+  [ "${#patch_files[@]}" -gt 0 ] || return 0
+
+  # Pre-check every patch before applying any of them, so a drifted upstream reports every
+  # broken patch in one pass instead of dying on the first and hiding the rest.
+  if [ -d "$workspace_dir/.git" ]; then
+    local failed=()
+    for patch_file in "${patch_files[@]}"; do
+      if git -C "$workspace_dir" apply --check "$patch_file" 2>/dev/null; then
+        echo "Patch check OK: $patch_file"
+      else
+        echo "Patch check FAILED: $patch_file"
+        failed+=("$patch_file")
+      fi
+    done
+    if [ "${#failed[@]}" -gt 0 ]; then
+      echo "The following patches do not apply cleanly against this workspace:" >&2
+      for patch_file in "${failed[@]}"; do
+        echo "  - $patch_file" >&2
+      done
+      die "${#failed[@]} patch(es) failed pre-check in $patches_dir (see above)"
+    fi
+  fi
+
+  for patch_file in "${patch_files[@]}"; do
     echo "Applying patch: $patch_file"
-    if [ -d "$workspace_dir/.git" ] && git -C "$workspace_dir" apply --check "$patch_file" 2>/dev/null; then
+    if [ -d "$workspace_dir/.git" ]; then
       git -C "$workspace_dir" apply --whitespace=nowarn "$patch_file" \
         || die "failed to apply patch (git apply): $patch_file"
     elif command -v patch >/dev/null 2>&1; then
