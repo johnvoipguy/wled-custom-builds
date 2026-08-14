@@ -1,8 +1,39 @@
 diff --git a/wled00/bus_manager.cpp b/wled00/bus_manager.cpp
-index f8cacc7..b17b208 100644
+index f8cacc7..0e4322f 100644
 --- a/wled00/bus_manager.cpp
 +++ b/wled00/bus_manager.cpp
-@@ -1346,7 +1346,32 @@ uint8_t BusManager::getI(uint8_t busType, const uint8_t* pins, uint8_t driverPre
+@@ -160,11 +160,9 @@ BusDigital::BusDigital(const BusConfig &bc)
+   if (bc.type == TYPE_WS2812_1CH_X3) lenToCreate = NUM_ICS_WS2812_1CH_3X(bc.count); // only needs a third of "RGB" LEDs for NeoPixelBus
+   _busPtr = PolyBus::create(_iType, _pins, lenToCreate + _skip);
+   _valid = (_busPtr != nullptr) && bc.count > 0;
+-  // fix for wled#4759
+-  if (_valid) for (unsigned i = 0; i < _skip; i++) {
+-    PolyBus::setPixelColor(_busPtr, _iType, i, 0, COL_ORDER_GRB); // set sacrificial pixels to black (CO does not matter here)
+-  }
+-  else {
++  // fix for wled#4759: sacrificial (skipped) pixels are painted black in begin(), not here -
++  // see begin() for why (this pointer isn't safe to write through until after PolyBus::begin()).
++  if (!_valid) {
+     cleanup();
+   }
+   DEBUGBUS_PRINTF_P(PSTR("Bus len:%u, type:%u (RGB:%d, W:%d, CCT:%d), pins:%u,%u [itype:%u, driver:%s] mA=%d/%d %s\n"),
+@@ -380,6 +378,15 @@ bool BusDigital::isI2S() {
+ void BusDigital::begin() {
+   if (!_valid) return;
+   PolyBus::begin(_busPtr, _iType, _pins, _frequencykHz);
++  // fix for wled#4759: set sacrificial (skipped) pixels to black. Must happen after
++  // PolyBus::begin() (which calls the underlying NeoPixelBus method's Initialize()), not in
++  // the constructor: some methods (e.g. ESP32-S3's LCD/I2S-parallel driver) lazily allocate
++  // their pixel buffer inside Initialize() rather than their constructor, so writing pixels
++  // before begin() writes through a null pointer - a hard crash (StoreProhibited), reproduced
++  // via "skip first N LEDs" on an I2S/LCD-driven bus.
++  for (unsigned i = 0; i < _skip; i++) {
++    PolyBus::setPixelColor(_busPtr, _iType, i, 0, COL_ORDER_GRB); // set sacrificial pixels to black (CO does not matter here)
++  }
+ }
+ 
+ void BusDigital::cleanup() {
+@@ -1346,8 +1353,45 @@ uint8_t BusManager::getI(uint8_t busType, const uint8_t* pins, uint8_t driverPre
  void BusManager::removeAll() {
    DEBUGBUS_PRINTLN(F("Removing all."));
    //prevents crashes due to deleting busses while in use.
@@ -33,9 +64,22 @@ index f8cacc7..b17b208 100644
 +      yield();
 +    }
 +  }
++  // DIAG: manifest of every bus about to be destroyed, so a crash during busses.clear()
++  // (destructor chain) can be correlated with which specific bus/config triggered it.
++  DEBUG_PRINTLN(F("DBG removeAll: about to destroy busses:"));
++  for (size_t i = 0; i < busses.size(); i++) {
++    Bus *b = busses[i].get();
++    uint8_t pins[5] = {255,255,255,255,255};
++    b->getPins(pins);
++    DEBUG_PRINTF_P(PSTR("DBG   bus[%u] type=%u pin0=%u start=%u len=%u skip=%u isOk=%d isDigital=%d\n"),
++                   (unsigned)i, (unsigned)b->getType(), (unsigned)pins[0], (unsigned)b->getStart(),
++                   (unsigned)b->getLength(), (unsigned)b->skippedLeds(), (int)b->isOk(), (int)b->isDigital());
++  }
    busses.clear();
++  DEBUG_PRINTLN(F("DBG removeAll: busses.clear() completed without crashing."));
    #ifndef ESP8266
    // Reset channel tracking for fresh allocation
+   PolyBus::resetChannelTracking();
 diff --git a/wled00/const.h b/wled00/const.h
 index 00a6b4d..390a92d 100644
 --- a/wled00/const.h

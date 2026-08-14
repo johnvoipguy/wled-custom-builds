@@ -614,14 +614,25 @@ public:
     NeoEsp32LcdXMethodBase(uint8_t pin, uint16_t pixelCount, size_t elementSize, size_t settingsSize) :
         _sizeData(pixelCount * elementSize + settingsSize),
         _pin(pin),
-        _bus()
+        _bus(),
+        _data(nullptr)
     {
+        // DIAG/FIX: _data was never initialized here - only ever set inside Initialize(),
+        // which is called separately from begin() after construction. If a bus object is
+        // destroyed before Initialize() ever ran (e.g. WLED's boot-time bus-creation loop
+        // breaks early on an out-of-range/invalid bus, leaving every later bus un-begin()'d),
+        // the destructor below still unconditionally free()s whatever garbage was sitting in
+        // this pointer - a crash inside free()/heap_caps_free() on a bogus, non-null address.
+        // Explicitly initializing to nullptr makes that free(nullptr) a safe no-op instead.
         size_t numResetBytes = T_SPEED::ResetTimeUs / T_SPEED::ByteSendTimeUs(T_SPEED::BitSendTimeNs);
-        _bus.RegisterNewMuxBus(_sizeData + numResetBytes);        
+        _bus.RegisterNewMuxBus(_sizeData + numResetBytes);
     }
 
     ~NeoEsp32LcdXMethodBase()
     {
+        if (_data == nullptr) {
+            Serial.printf("DBG LcdX destructor: pin=%u never Initialize()'d (data=null) - free(nullptr) is a safe no-op\n", _pin);
+        }
         while (!_bus.IsWriteDone())
         {
             yield();

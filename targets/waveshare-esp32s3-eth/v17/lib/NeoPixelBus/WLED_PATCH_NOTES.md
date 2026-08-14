@@ -27,9 +27,28 @@ Patched in `src/internal/methods/ESP/ESP32/NeoEsp32RmtXMethod.h` (search `DIAG/F
     (and a one-line success confirmation), so a future starvation/allocation failure is visible
     in the boot log instead of manifesting as a silent, permanent hang somewhere else.
 
-No other changes. Re-verify this patch is still needed before bumping the vendored commit -
-check whether upstream `Makuna/NeoPixelBus` has since fixed the return-code handling or changed
-`mem_block_symbols` itself.
+Also patched in `src/internal/methods/ESP/ESP32/NeoEsp32LcdXMethod.h` (S3's LCD/I2S-parallel
+driver) and `src/internal/methods/ESP/ESP32/Core_2_x/NeoEsp32I2sXMethod.h` (classic ESP32/S2's
+real-I2S driver) - search `DIAG/FIX` in both:
 
-See `../../notes.md` for the full investigation (symptom, how the removeAll() hang was
-root-caused down to this exact line, and how it was validated on hardware).
+- `_data` (the method's own pixel-buffer pointer, separate from `NeoPixelBus<>`'s constructor)
+  was never initialized in either class's constructor - only ever set inside `Initialize()`,
+  which WLED calls later via `begin()`, not at construction time. If a bus object is destroyed
+  before `Initialize()` ever ran on it, the destructor still unconditionally calls `free(_data)`
+  on whatever garbage was sitting in that pointer - a crash inside `free()`/`heap_caps_free()`
+  on a bogus, non-null address.
+  - Fixed: `_data(nullptr)` added to both constructors' initializer lists, so an un-Initialize()'d
+    bus's destructor calls `free(nullptr)` - a safe no-op - instead of freeing garbage. Also
+    added a one-line log on that path so it's visible rather than silent.
+  - Note: the actual crash this was chasing (see `../../notes.md`) turned out to have a second,
+    primary cause in WLED's own `bus_manager.cpp` (writing sacrificial/skipped pixels in the
+    `BusDigital` constructor, before `begin()`/`Initialize()` ever ran - fixed separately, not
+    in this vendored copy). This `_data(nullptr)` fix is still worth keeping as a general safety
+    net against the same class of bug from any other call path.
+
+No other changes. Re-verify these patches are still needed before bumping the vendored commit -
+check whether upstream `Makuna/NeoPixelBus` has since fixed the return-code handling, changed
+`mem_block_symbols`, or initialized `_data` itself.
+
+See `../../notes.md` for the full investigation (symptoms, root causes, and how both were
+validated on hardware).

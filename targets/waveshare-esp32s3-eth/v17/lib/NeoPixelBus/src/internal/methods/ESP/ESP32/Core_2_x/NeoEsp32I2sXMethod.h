@@ -794,8 +794,11 @@ public:
     NeoEsp32I2sXMethodBase(uint8_t pin, uint16_t pixelCount, size_t elementSize, size_t settingsSize) :
         _sizeData(pixelCount * elementSize + settingsSize),
         _pin(pin),
-        _bus()
+        _bus(),
+        _data(nullptr)
     {
+        // DIAG/FIX: same uninitialized-_data issue fixed in NeoEsp32LcdXMethod.h (S3's
+        // equivalent) - see that file's WLED_PATCH_NOTES.md / comment for the full explanation.
         _bus.RegisterNewMuxBus(_sizeData + T_SPEED::ResetTimeUs / T_SPEED::ByteSendTimeUs(T_SPEED::BitSendTimeNs));
     }
 

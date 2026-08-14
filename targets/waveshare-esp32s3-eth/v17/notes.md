@@ -10,8 +10,9 @@ Validated on **two** physical Waveshare ESP32-S3-ETH boards:
 - xLights → DDP over WiFi: pass
 - Web UI over Ethernet: pass
 - Web UI over WiFi: pass
-- Live LED-hardware-settings changes (add/remove/reconfigure buses at runtime, no reboot)
-  over both Ethernet and WiFi: pass
+- Live LED-hardware-settings changes (add/remove/reconfigure buses at runtime, no reboot,
+  including "skip first N LEDs" on both RMT- and I2S/LCD-driven buses) over both Ethernet
+  and WiFi: pass
 
 Not yet tested: MQTT, and a few other minor items — treat those as open until confirmed.
 
@@ -45,19 +46,20 @@ turns into a build failure.
   `#error`s out on chips without `CONFIG_ETH_USE_ESP32_EMAC`, which includes the S3), a deferred
   `handleW5500()` in `wled.cpp`'s `loop()` (see below for why `ETH.begin()` can't run during
   early boot), reserved-pin reporting in `xml.cpp`, and dual WiFi+Ethernet IP display in the
-  info panel (`json.cpp` / `data/index.js`). Also includes the `bus_manager.cpp` fix described
-  below (not Ethernet-specific, but part of the same patch since both were developed together).
+  info panel (`json.cpp` / `data/index.js`). Also includes the `bus_manager.cpp` fixes described
+  below (not Ethernet-specific, but part of the same patch since all were developed together).
 - `lib/NeoPixelBus/` — vendored, patched copy of the exact NeoPixelBus commit WLED main's
-  `[esp32_idf_V5]` env already pins. See `lib/NeoPixelBus/WLED_PATCH_NOTES.md` for the fix
-  itself (RMT channel memory-block starvation on ESP32-S3, see below).
+  `[esp32_idf_V5]` env already pins. See `lib/NeoPixelBus/WLED_PATCH_NOTES.md` for the fixes
+  themselves (RMT channel memory-block starvation, and an uninitialized pixel-buffer pointer —
+  both on ESP32-S3, see below).
 - `build.json` — `wled_ref: main`.
 - `platformio.env.ini` — the `[env:waveshare_esp32s3_eth_v5]` fragment.
 
-## Two bugs found and fixed along the way
+## Three bugs found and fixed along the way
 
-Both were found while chasing "LED hardware settings silently don't save" — which turned out to
-be a real WLED-main/Core3.x bug, **not Ethernet/W5500-specific** (independently reproduced on a
-SEEED ESP32-S3 board with no Ethernet at all).
+The first two were found while chasing "LED hardware settings silently don't save" — which
+turned out to be a real WLED-main/Core3.x bug, **not Ethernet/W5500-specific** (independently
+reproduced on a SEEED ESP32-S3 board with no Ethernet at all).
 
 ### 1. `network.cpp` null-pointer-constant comparison (Ethernet-specific)
 
@@ -87,6 +89,33 @@ the above: the wait is now bounded (~3s) with a per-bus diagnostic dump on timeo
 unconditional infinite spin, so any *future* stuck-bus condition (from any cause) can no longer
 hang a save forever — it'll log which bus/type/pin is stuck and proceed anyway.
 
+### 3. Sacrificial-pixel write before buffer allocation (a WLED bug, exposed by the I2S/LCD driver)
+
+Symptom: setting "skip first N LEDs" on an **I2S/LCD-driven** bus (not RMT — a board with only
+RMT-driven buses, i.e. 4 or fewer digital buses, did not reproduce this) and saving crashed
+immediately (`Guru Meditation Error`, `StoreProhibited`, `EXCVADDR=0x0`) during the very next
+boot's bus creation — not even during the save itself, since the poisoned config gets replayed
+on every subsequent boot until fixed or reverted (this looked like a "bricked" board; it wasn't
+— restoring the auto-saved `/bkp.cfg.json` backup recovers it).
+
+Root-caused via exact `addr2line` resolution (LTO temporarily disabled for the diagnostic build)
+of the crash backtrace to `BusDigital::BusDigital(const BusConfig&)` in `bus_manager.cpp`: the
+"paint sacrificial/skipped pixels black" fix for wled#4759 called `PolyBus::setPixelColor()`
+directly inside the bus constructor, immediately after `PolyBus::create()` — before
+`bus->begin()` (called later, from `WS2812FX::finalizeInit()`) ever runs. For RMT-driven buses
+this happens to be harmless, because `NeoEsp32RmtMethodBase`'s pixel buffer is malloc'd
+unconditionally in its constructor. For I2S/LCD-driven buses it is not: `NeoEsp32LcdXMethodBase`
+(and the classic-ESP32 `NeoEsp32I2sXMethodBase`) only allocate their pixel buffer inside
+`Initialize()`, which is called from `begin()` — so writing a pixel color before `begin()` wrote
+through a garbage/uninitialized pointer.
+
+Fixed by moving the sacrificial-pixel blackout out of `BusDigital`'s constructor and into
+`BusDigital::begin()`, after `PolyBus::begin()` (which allocates the buffer) has run. Also
+added `_data(nullptr)` to both NeoPixelBus method constructors in the vendored copy as a general
+safety net (see `lib/NeoPixelBus/WLED_PATCH_NOTES.md`) — not the primary fix, but it means an
+un-`Initialize()`'d bus's destructor now does a safe `free(nullptr)` instead of freeing garbage,
+for any other call path that might hit the same gap in the future.
+
 ## Pin configuration
 
 Same physical pins as v16 (`MISO=12 MOSI=11 SCLK=13 CS=14 INT=10 RST=9`), confirmed against the
@@ -100,10 +129,14 @@ this board and clear of the W5500 SPI pins, SD card, and USB.
 - MQTT not yet tested (see validation status above).
 - Diagnostic `DEBUG_PRINT`/`Serial.printf` instrumentation from the investigation is still
   present (`set.cpp`, `wled.cpp`'s `entering finalizeInit`/`configNeedsWrite` lines,
-  `bus_manager.cpp`'s bounded-wait diagnostic dump, and the RMT init ok/FAILED logging in the
-  vendored NeoPixelBus). All are low-frequency/event-driven, not spam, and only emit under
-  `WLED_DEBUG`. Left in deliberately for now since they're cheap insurance if anything else
-  surfaces; strip if/when confidence is high enough to not need them.
+  `bus_manager.cpp`'s bounded-wait diagnostic dump and pre-teardown bus manifest, and the RMT
+  init ok/FAILED + LCD-destructor-null logging in the vendored NeoPixelBus). All are
+  low-frequency/event-driven, not spam, and only emit under `WLED_DEBUG`. Left in deliberately
+  for now since they're cheap insurance if anything else surfaces; strip if/when confidence is
+  high enough to not need them.
+- LTO is currently disabled on this env (`build_unflags` in `platformio.env.ini`) so any future
+  crash backtrace resolves to an exact file:line via `addr2line` instead of collapsing to the
+  enclosing function. Costs a bit of flash size/performance; re-enable once confidence is high.
 - This target is deliberately scoped to the Waveshare board only, not sp530e/seeed-xiao.
 
 ## Building
