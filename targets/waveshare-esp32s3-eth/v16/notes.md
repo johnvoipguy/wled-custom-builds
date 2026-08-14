@@ -3,19 +3,34 @@
 W5500 Ethernet ported forward from the validated `waveshare-esp32s3-eth-v15.1` branch to
 WLED `v16.0.1`.
 
+> **Need DDP/E1.31/MQTT or the web UI to work over Ethernet?** Use `../v17/` instead. This
+> line's W5500 driver is a separate hardware-socket stack that no WLED application traffic
+> actually flows through — see "Confirmed limitation" below.
+
 ## Hardware validation status
 
-**Verified on a Waveshare ESP32-S3-ETH:**
+**Verified on physical Waveshare ESP32-S3-ETH hardware:**
 - Boots cleanly; serves the `WLED-ETH-Config` AP, accepts WiFi credentials, connects over WiFi.
 - 3MB app partitions; firmware occupies ~39% of the app slot.
+- Correct DIO flash-mode header — no boot loop (see "Flash mode" below for what breaks this).
 - **W5500 Ethernet comes up**: chip detected over SPI (`hardwareStatus=3`), link detected
   (`linkStatus=1`), DHCP lease obtained.
 - WiFi and Ethernet run simultaneously with **distinct IPs**, both shown in the info panel.
+- GPIO0 is usable as a normal LED data pin (was previously, incorrectly, reserved by the
+  settings UI — fixed, see commit history).
 
-Still **unverified on hardware**:
-- Whether realtime protocols (DDP/E1.31/Art-Net) and MQTT actually traverse the W5500 —
-  see "Known limitation" below. This is the significant open question.
-- OTA behavior over a long period / repeated updates on the 3MB layout.
+**Confirmed limitation, not a gap in testing — tested and reproduced twice:**
+- **Realtime protocols (DDP/E1.31/Art-Net) do NOT traverse the W5500 on this line.** This
+  isn't "unverified," it's a tested negative result. AsyncUDP/lwIP is what WLED's DDP/E1.31
+  handlers bind to, and this line's W5500 driver is deliberately a separate, parallel hardware
+  socket stack (see "Architecture" below) that nothing in WLED's protocol handlers talks to.
+  Sending DDP to this firmware's Ethernet IP does not reach the strip. Practically, the
+  Ethernet interface on this line only proves link-up/DHCP at the driver level — no WLED
+  application traffic (web UI, DDP, MQTT) actually flows over it; only WiFi does.
+  **If you need DDP/E1.31/MQTT/web UI over Ethernet, use the `v17` line instead** — it wires
+  W5500 up as a real lwIP interface (`ETH_PHY_W5500`) instead of a parallel hardware-socket
+  stack, so all of that works over Ethernet automatically. See `../v17/notes.md`.
+- OTA behavior over a long period / repeated updates on the 3MB layout — still untested.
 
 ### Debugging notes earned the hard way
 
@@ -64,7 +79,12 @@ Ground truth for this board, read from the image header of the working v0.15.1 f
 
 ## Active line status
 
-- **Active line for this target:** `v16`
+- **This line (`v16`) is hardware-validated but architecturally limited** — see "Confirmed
+  limitation" above. It's kept for reference and for anyone who specifically wants the
+  hardware-socket TCP/IP offload and doesn't need realtime protocols/web UI over Ethernet.
+- **`v17` is the recommended line for this board** (WLED `main`, IDF5/Core3, native lwIP
+  `ETH_PHY_W5500`) — DDP/E1.31/MQTT and the web UI/OTA all work over Ethernet there, validated
+  on two physical boards. See `../v17/notes.md`.
 - WLED ref: `v16.0.1` (see `build.json`; there is no `0.16.1` — WLED dropped the `0.` prefix and
   moved from `Aircoookie/WLED` to `wled/WLED` between the 0.15.x and 16.x lines)
 - Canonical PlatformIO environment: `waveshare_esp32s3_eth`
@@ -128,7 +148,7 @@ current tooling). Changing `shared/` risks changing what "v15" means without bei
 verify v15 still builds the same way. This port's real, verified, compiling code lives entirely
 under this `v16/` directory (`patches/`, `lib/`, `platformio.env.ini`) instead.
 
-## Architecture: why WiFi + Ethernet run simultaneously (kept from the v15.1 port)
+## Architecture: why WiFi + Ethernet run simultaneously, and why Ethernet only proves link-up here
 
 The W5500's actual differentiating hardware is its onboard hardwired TCP/IP stack (WIZnet's own
 silicon socket engine) — using it means AsyncTCP (which is hardwired to ESP32's lwIP, not a
@@ -137,14 +157,21 @@ in ESP-IDF's native MACRAW mode via `ETH_PHY_W5500` — gets lwIP/AsyncTCP compa
 but per Espressif's own driver docs, explicitly **does not use the W5500's hardware TCP/IP
 engine at all**; the chip becomes a bare MAC/PHY bridge and the ESP32 CPU does all protocol
 processing in software, same as any RMII PHY. This port deliberately keeps the hardware-socket
-approach (real offload) and accepts the WiFi/Ethernet split as the necessary consequence:
+approach (real offload) — but the split that results is less useful than it may sound:
 
-- **WiFi**: Web UI, WebSockets, HTTP/JSON API, OTA (whatever needs AsyncTCP/lwIP)
-- **W5500 (hardware sockets)**: realtime UDP LED protocols (E1.31/Art-Net/DDP), MQTT
+- **WiFi**: Web UI, WebSockets, HTTP/JSON API, OTA, and DDP/E1.31/MQTT (everything, because
+  everything in WLED runs over AsyncTCP/lwIP)
+- **W5500 (hardware sockets)**: link-up + DHCP only. The design intent was for realtime UDP LED
+  protocols (E1.31/Art-Net/DDP) and MQTT to run over the W5500's own hardware sockets instead of
+  lwIP — but no protocol handler in WLED was ever wired to talk to that hardware-socket API, and
+  confirmed by testing, none of them do. The Ethernet interface comes up and gets an IP, but
+  carries no WLED application traffic at all.
 
-A single-interface, Ethernet-only design is possible but requires replacing WLED's web/socket
-layer with one built on the W5500's own hardware socket API — a genuinely large, standing fork
-of WLED's networking core (not a target overlay), scoped separately if pursued.
+Making the hardware-socket approach actually carry application traffic would require replacing
+WLED's web/socket layer *and* its realtime-protocol receivers with code built on the W5500's own
+hardware socket API — a genuinely large, standing fork of WLED's networking core (not a target
+overlay), not attempted here. **`v17` sidesteps this entirely** by using `ETH_PHY_W5500` (lwIP)
+instead, at the cost of losing the hardware TCP/IP offload itself — see `../v17/notes.md`.
 
 ## Hardware / pin configuration
 
@@ -185,15 +212,17 @@ files specifically when moving this port to a 17.x/nightly base — don't assume
 
 ## What's not done
 
-- **No physical hardware validation.** DHCP lease acquisition, hot-plug detection, and dual
-  WiFi+Ethernet runtime behavior are unverified beyond compilation.
+- **Hot-plug detection** (unplugging/replugging the Ethernet cable at runtime) is unverified.
+- OTA behavior over a long period / repeated updates on the 3MB layout — untested.
 - **Root `platformio.ini`'s `[env:waveshare_esp32s3_eth]` compatibility copy is not wired to
   this driver** — it still only carries build flags against this repo's own vendored `wled00/`,
   which does not have this patch applied. Use `scripts/build-target.sh` (below), not a direct
   root-level `pio run`, until/unless that's addressed separately.
 - **Option 2 (fully hardware-socket, no WiFi needed at all)** — replacing WLED's web/socket
   layer to run entirely on the W5500's hardware sockets — was scoped in discussion but not
-  started. It's a standing fork of WLED's networking core, not a target overlay.
+  started. It's a standing fork of WLED's networking core, not a target overlay. Given `v17`
+  now solves the same problem (application traffic over Ethernet) a different way, this is
+  unlikely to be worth pursuing.
 
 ## Building
 

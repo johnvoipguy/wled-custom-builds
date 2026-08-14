@@ -29,8 +29,21 @@ esptool.py --chip esp32s3 write_flash 0x0000 <your-file>.full.bin
 - Wrong network behavior or missing Ethernet: verify you flashed the Waveshare target build.
 - OTA failures: flash `.full.bin` over UART and retry setup.
 
+## Which line should I use?
+
+This board has three build lines. If you need DDP/E1.31/MQTT or the web UI to work over the
+Ethernet port, **use v17** — on v16, Ethernet only proves link-up/DHCP and carries no WLED
+application traffic (see v16 notes for why).
+
+| Line | WLED base | Ethernet model | DDP/E1.31/MQTT/web UI over Ethernet? | Status |
+|---|---|---|---|---|
+| **v17 (recommended)** | `main` / IDF5 / Core 3.3.8 | native lwIP (`ETH_PHY_W5500`) | Yes | Hardware-validated on two boards |
+| v16 | 16.0.1 | W5500 hardware-socket offload | No — Ethernet only carries link-up/DHCP | Hardware-validated |
+| v15 | 0.15.x | (preserved/frozen) | — | Preserved, not actively developed |
+
 ## More target details
 
-- v16 active line notes (WLED 16.0.1, W5500 hardware-socket Ethernet): [targets/waveshare-esp32s3-eth/v16/notes.md](v16/notes.md) — not yet validated on physical hardware, compiles clean.
+- v17 line notes (WLED `main`, native lwIP W5500 — recommended): [targets/waveshare-esp32s3-eth/v17/notes.md](v17/notes.md)
+- v16 line notes (WLED 16.0.1, W5500 hardware-socket Ethernet): [targets/waveshare-esp32s3-eth/v16/notes.md](v16/notes.md) — hardware-validated; see notes for the Ethernet application-traffic limitation.
 - v15 line notes (WLED 0.15.x, preserved/frozen): [targets/waveshare-esp32s3-eth/v15/notes.md](v15/notes.md)
-- Shared target config (v15 line only — v16 has its own env fragment, see v16/notes.md): [targets/waveshare-esp32s3-eth/shared](shared)
+- Shared target config (v15 line only — v16/v17 each have their own env fragment, see their notes.md): [targets/waveshare-esp32s3-eth/shared](shared)
