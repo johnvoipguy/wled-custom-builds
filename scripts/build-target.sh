@@ -780,6 +780,41 @@ fi
 for _env in "${resolved_envs[@]}"; do
   (
     cd "$workspace"
+    # Fetch dependencies first (without compiling), then overwrite any fetched library that
+    # also has a vendored/patched copy under workspace lib/<name>/, before the real build runs.
+    #
+    # WHY THIS IS NEEDED: PlatformIO does NOT prefer a project-local lib/<name>/ folder over an
+    # explicit lib_deps entry of the same name - if the base WLED environment's own
+    # platformio.ini already lists e.g. `NeoPixelBus = git+https://...`, PlatformIO's Library
+    # Manager honors that and fetches a fresh copy, silently ignoring an apply-target.sh-copied
+    # lib/NeoPixelBus/ override entirely (confirmed via a real CI build whose compiled firmware
+    # never contained a vendored fix, and reproduced locally in a from-scratch workspace).
+    # Adding a competing lib_deps entry (e.g. `symlink://lib/<name>`) does not fix this either -
+    # it creates a SECOND, separately-compiled copy alongside the fetched one instead of
+    # replacing it, which is worse (duplicate/inconsistent symbols, unpredictable which copy
+    # actually gets #include'd). Overwriting the already-fetched directory's files in place,
+    # after fetch but before compile, is the reliable way to guarantee our patched code is what
+    # actually gets compiled, regardless of how PlatformIO's dependency resolution behaves.
+    if [ -d lib ]; then
+      vendored_libs=()
+      for _lib_dir in lib/*/; do
+        [ -d "$_lib_dir" ] || continue
+        vendored_libs+=("$(basename "$_lib_dir")")
+      done
+      if [ "${#vendored_libs[@]}" -gt 0 ]; then
+        pio pkg install -e "$_env"
+        for _lib_name in "${vendored_libs[@]}"; do
+          shopt -s nullglob
+          fetched_dirs=(".pio/libdeps/$_env/$_lib_name" ".pio/libdeps/$_env/$_lib_name"@*)
+          shopt -u nullglob
+          for _fetched_dir in "${fetched_dirs[@]}"; do
+            [ -d "$_fetched_dir" ] || continue
+            echo "Overwriting fetched $_fetched_dir with vendored lib/$_lib_name/"
+            cp -a "lib/$_lib_name/." "$_fetched_dir/"
+          done
+        done
+      fi
+    fi
     pio run -e "$_env"
   )
   copy_artifacts_for_env "$_env"

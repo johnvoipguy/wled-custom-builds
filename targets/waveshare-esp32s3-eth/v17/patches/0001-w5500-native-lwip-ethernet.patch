@@ -472,6 +472,31 @@ index 6b8f0ba..8a1a85c 100644
  typedef struct EthernetSettings {
    uint8_t        eth_address;
    int            eth_power;
+diff --git a/wled00/wled_server.cpp b/wled00/wled_server.cpp
+index 7fea738..423bb34 100644
+--- a/wled00/wled_server.cpp
++++ b/wled00/wled_server.cpp
+@@ -790,6 +790,20 @@ void serveSettings(AsyncWebServerRequest* request, bool post) {
+     }
+     if (subPage != SUBPAGE_WIFI || !(wifiLock && otaLock)) handleSettingsSet(request, subPage);
+ 
++    if (subPage == SUBPAGE_LEDS && doInitBusses) {
++      // LED settings defer the actual bus rebuild to loop() via doInitBusses (see set.cpp) -
++      // it isn't safe to run finalizeInit() directly from this request-handler task. Without
++      // this wait, the HTTP response (and any page the browser loads right after) can beat
++      // loop()'s rebuild, so navigating straight back into LED Settings shows the pre-save
++      // config until a manual refresh. Bounded wait (not a busy-deadlock risk: loop() consumes
++      // doInitBusses on its own schedule, independent of this task) so a slow rebuild degrades
++      // to "old data momentarily" instead of "request hangs forever".
++      unsigned long waitStart = millis();
++      while (doInitBusses && millis() - waitStart < 3000) {
++        yield();
++      }
++    }
++
+     char s[32];
+     char s2[45] = "";
+ 
 diff --git a/wled00/xml.cpp b/wled00/xml.cpp
 index 04d57eb..5f1606c 100644
 --- a/wled00/xml.cpp
