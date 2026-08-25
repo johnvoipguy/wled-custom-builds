@@ -38,9 +38,9 @@ If you want to add custom usermods (temperature sensors, extra I/O, microphone i
 
 **Reserved/Unavailable:**
 - GPIO 0–3, 15–18: LED data outputs (8 channels)
-- GPIO 21: Onboard status LED
+- GPIO 4–7: SD card (reserved for future SD card support)
 - GPIO 9–14: W5500 Ethernet SPI controller
-- GPIO 4: SD card (if future support is added)
+- GPIO 21: Onboard status LED
 - GPIO 33–37: Module PSRAM
 
 To use these pins, modify `platformio.env.ini` or add flags in your local `platformio_override.ini`.
