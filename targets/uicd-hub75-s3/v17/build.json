@@ -1,0 +1,5 @@
+{
+  "environment": "uicd_hub75_s3",
+  "wled_ref": "main",
+  "wled_repo": "https://github.com/wled/WLED.git"
+}
