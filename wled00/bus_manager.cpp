@@ -869,10 +869,11 @@ BusHub75Matrix::BusHub75Matrix(const BusConfig &bc) : Bus(bc.type, bc.start, bc.
 #elif defined(CONFIG_IDF_TARGET_ESP32S3) && defined(BOARD_HAS_PSRAM)// ESP32-S3 with PSRAM
 
 #if defined(MOONHUB_S3_PINOUT)
-  DEBUGBUS_PRINTLN("MatrixPanel_I2S_DMA - T7 S3 with PSRAM, MOONHUB pinout");
+  DEBUGBUS_PRINTLN("MatrixPanel_I2S_DMA - Custom Row Pinout Enabled");
 
-  // HUB75_I2S_CFG::i2s_pins _pins={R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
-  mxconfig.gpio = { 1, 5, 6, 7, 13, 9, 16, 48, 47, 21, 38, 8, 4, 18 };
+  // Order of pins inside the library mapping block:
+  // R1, G1, B1, R2, G2, B2, A, B, C, D, E, LAT, OE, CLK
+  mxconfig.gpio = { 4, 5, 6, 7, 8, 9, 38, 39, 40, 41, 42, 11, 12, 10 };
 
 #else
   DEBUGBUS_PRINTLN("MatrixPanel_I2S_DMA - S3 with PSRAM");
