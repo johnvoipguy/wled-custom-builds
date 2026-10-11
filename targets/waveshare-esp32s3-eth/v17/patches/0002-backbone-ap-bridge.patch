@@ -13,10 +13,10 @@ index c310f15..7ca4c91 100644
  void fillMAC2Str(char *str, const uint8_t *mac);
  void fillStr2MAC(uint8_t *mac, const char *str);
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index f840456..c04cc4f 100644
+index f840456..2e0a125 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
-@@ -244,6 +244,169 @@ static bool w5500Pending = false;   // pins reserved, ETH.begin() still to run
+@@ -244,6 +244,177 @@ static bool w5500Pending = false;   // pins reserved, ETH.begin() still to run
  static bool w5500Started = false;   // ETH.begin() attempted
  #endif
  
@@ -161,6 +161,14 @@ index f840456..c04cc4f 100644
 +// a port) - initConnection() skips its WiFi reset in the bridge build for that reason.
 +static void handleApBridgePort() {
 +  if (apPortAdded || !brStarted || !apActive || !brNetif) return;
++  // Never bridge an open AP onto the wired LAN: without a WPA2 key (8+ chars) anyone in range
++  // would get L2 access to the LAN. The AP stays a plain local AP (192.168.4.1) until a key is set.
++  static bool openApWarned = false;
++  if (strlen(apPass) < 8) {
++    if (!openApWarned) DEBUG_PRINTLN(F("AP bridge: AP has no key (8+ chars), not bridging"));
++    openApWarned = true;
++    return;
++  }
 +  esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 +  if (!ap || !esp_netif_is_netif_up(ap)) return;
 +  esp_netif_dhcps_stop(ap);            // AP clients get DHCP from the real LAN through the bridge
@@ -186,7 +194,7 @@ index f840456..c04cc4f 100644
  bool initEthernet()
  {
    static bool successfullyConfiguredEthernet = false;
-@@ -416,6 +579,9 @@ bool initEthernet()
+@@ -416,6 +587,9 @@ bool initEthernet()
  // Arduino/esp_netif network stack is actually up. See the note in initEthernet() for why this
  // cannot happen during config load on Core 3.x.
  void handleW5500() {
@@ -196,7 +204,7 @@ index f840456..c04cc4f 100644
    if (!w5500Pending || w5500Started) return;
  
    // Retry until begin() succeeds rather than giving up after one attempt. A single shot means
-@@ -431,6 +597,17 @@ void handleW5500() {
+@@ -431,6 +605,17 @@ void handleW5500() {
    if (lastAttempt != 0 && millis() - lastAttempt < WLED_W5500_RETRY_MS) return;
    lastAttempt = millis();
  

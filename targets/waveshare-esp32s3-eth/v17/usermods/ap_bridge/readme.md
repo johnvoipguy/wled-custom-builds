@@ -7,7 +7,7 @@ Shows up under **Settings → Usermods → ApBridge**, saved in `cfg.json`.
 |---|---|
 | `bridge` | W5500 ↔ AP L2 bridge on/off (off = behaves like regular v17) |
 | `ssid` | AP SSID (same global as the WiFi settings page) |
-| `key` | AP key, write-only (8–64 chars). Leave empty to keep the current key |
+| `key` | AP key, write-only (8–64 chars). Leave empty to keep the current key. **The AP is not bridged until a key is set** (an open AP stays a local 192.168.4.1 AP) |
 | `channel` | AP channel 1–13 |
 | `hidden` | Hide the AP SSID |
 | `alwaysOn` | Force AP always on. Forced on while `bridge` is enabled |

@@ -181,7 +181,8 @@ DHCP from the real LAN, and show up as ordinary wired-LAN devices.
 - `patches/0002-backbone-ap-bridge.patch` (on top of 0001):
   - `network.cpp`: in `handleW5500()`, the bridge build brings the W5500 up at IDF level as an
     IP-less bridge port (promiscuous) instead of `ETH.begin()`, creates `br0` (DHCP, or WLED's
-    static IP settings) and, once the AP is up, adds the AP as the second port. Same deferred
+    static IP settings) and, once the AP is up, adds the AP as the second port. An open AP (no
+    8+ char key) is never bridged; it stays a local 192.168.4.1 AP until a key is set. Same deferred
     start/retry as 0001. Same derived MAC as v17's `ETH.begin()`, so DHCP reservations carry over.
   - `wled.cpp`: `initAP()` skips 4.3.2.1 / AP DHCP server / captive DNS and applies the STA cap.
     `initConnection()` skips the WiFi reset and STA connect (the Backbone is never a WiFi client,
