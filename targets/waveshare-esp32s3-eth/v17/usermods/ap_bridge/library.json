@@ -1,0 +1,4 @@
+{
+  "name": "ap_bridge",
+  "build": { "libArchive": false }
+}
