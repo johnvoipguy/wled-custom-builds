@@ -193,6 +193,8 @@ DHCP from the real LAN, and show up as ordinary wired-LAN devices.
 - `usermods/ap_bridge/`: one-stop settings page (Usermods → ApBridge). Writes straight into the
   core AP globals; saving a change reboots. See its readme.md.
 - `custom_sdkconfig`: `CONFIG_ESP_NETIF_BRIDGE_EN=y` — triggers a framework lib rebuild.
+- Own defaults (via `build_unflags` + `build_flags` in the env): release name
+  `WAVESHARE-S3-ETH-APBRIDGE`, AP SSID `WLED_BRIDGE`, AP key `876543210`.
 
 Build:
 ```
