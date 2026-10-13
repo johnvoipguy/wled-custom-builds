@@ -1,22 +1,23 @@
 diff --git a/wled00/fcn_declare.h b/wled00/fcn_declare.h
-index c310f15..7ca4c91 100644
+index c310f15..1085c45 100644
 --- a/wled00/fcn_declare.h
 +++ b/wled00/fcn_declare.h
-@@ -319,6 +319,9 @@ bool initEthernet(); // result is informational
+@@ -319,6 +319,10 @@ bool initEthernet(); // result is informational
  #if defined(WLED_USE_W5500) && defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
  void handleW5500(); // deferred W5500 bring-up, called from WLED::loop()
  #endif
 +#ifdef WLED_AP_BRIDGE
 +void apBridgeMdns(); // register br0 with mDNS, called after MDNS.begin()
++bool apBridgePortAdded(); // true once the AP is a (permanent) bridge port
 +#endif
  int  getSignalQuality(int rssi);
  void fillMAC2Str(char *str, const uint8_t *mac);
  void fillStr2MAC(uint8_t *mac, const char *str);
 diff --git a/wled00/network.cpp b/wled00/network.cpp
-index f840456..2e0a125 100644
+index f840456..7d5e94e 100644
 --- a/wled00/network.cpp
 +++ b/wled00/network.cpp
-@@ -244,6 +244,177 @@ static bool w5500Pending = false;   // pins reserved, ETH.begin() still to run
+@@ -244,6 +244,190 @@ static bool w5500Pending = false;   // pins reserved, ETH.begin() still to run
  static bool w5500Started = false;   // ETH.begin() attempted
  #endif
  
@@ -43,11 +44,19 @@ index f840456..2e0a125 100644
 +
 +static esp_netif_t *brNetif = nullptr;   // br0, holds the IP
 +static volatile bool brStarted = false;  // br0's lwIP netif exists (set from the event task)
++static volatile bool ethLinkUp = false;  // real PHY link, not just driver start (see below)
 +static bool apPortAdded = false;
 +
 +// Registered after the bridge glue's own ETHERNET_EVENT_START handler, so by the time this runs
 +// the glue has created br0 and added the W5500 port (handlers run in registration order).
-+static void onBridgeEthStart(void*, esp_event_base_t, int32_t, void*) { brStarted = true; }
++// ETHERNET_EVENT_START only means the driver was started, not that a cable is plugged in - the
++// PHY only reports link state via ETHERNET_EVENT_CONNECTED/DISCONNECTED, so bridging the AP in
++// has to wait for CONNECTED or it happens immediately on an unplugged port with no upstream DHCP.
++static void onBridgeEthEvent(void*, esp_event_base_t, int32_t id, void*) {
++  if (id == ETHERNET_EVENT_START) brStarted = true;
++  else if (id == ETHERNET_EVENT_CONNECTED) ethLinkUp = true;
++  else if (id == ETHERNET_EVENT_DISCONNECTED) ethLinkUp = false;
++}
 +
 +// IDF-level W5500 bring-up (same SPI/MAC/PHY setup Arduino's ETH.begin() does), but the port
 +// netif gets no IP/DHCP and is attached to br0. Returns false only if the driver could not be
@@ -125,7 +134,9 @@ index f840456..2e0a125 100644
 +    DEBUG_PRINTLN(F("initW5500: bridge netif failed"));
 +    return true;
 +  }
-+  esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_START, onBridgeEthStart, nullptr);
++  esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_START, onBridgeEthEvent, nullptr);
++  esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_CONNECTED, onBridgeEthEvent, nullptr);
++  esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_DISCONNECTED, onBridgeEthEvent, nullptr);
 +
 +  char hostname[64] = {'\0'};
 +  getWLEDhostname(hostname, sizeof(hostname), true);
@@ -160,12 +171,13 @@ index f840456..2e0a125 100644
 +// both br0 and the AP exist. Once added, the AP must never be torn down (lwIP's bridge can't drop
 +// a port) - initConnection() skips its WiFi reset in the bridge build for that reason.
 +static void handleApBridgePort() {
-+  if (apPortAdded || !brStarted || !apActive || !brNetif) return;
-+  // Never bridge an open AP onto the wired LAN: without a WPA2 key (8+ chars) anyone in range
-+  // would get L2 access to the LAN. The AP stays a plain local AP (192.168.4.1) until a key is set.
++  if (apPortAdded || !brStarted || !ethLinkUp || !apActive || !brNetif) return;
++  // Never bridge an open AP, or one still on the build's published default key, onto the wired
++  // LAN: anyone in range (or reading the repo) would get L2 access to it. The AP stays a plain
++  // local AP (4.3.2.1) until the key is changed to a custom 8+ char one.
 +  static bool openApWarned = false;
-+  if (strlen(apPass) < 8) {
-+    if (!openApWarned) DEBUG_PRINTLN(F("AP bridge: AP has no key (8+ chars), not bridging"));
++  if (strlen(apPass) < 8 || strcmp(apPass, WLED_AP_PASS) == 0) {
++    if (!openApWarned) DEBUG_PRINTLN(F("AP bridge: AP key is empty/default, not bridging until it is changed"));
 +    openApWarned = true;
 +    return;
 +  }
@@ -182,6 +194,8 @@ index f840456..2e0a125 100644
 +  }
 +}
 +
++bool apBridgePortAdded() { return apPortAdded; }
++
 +// br0 is not one of mDNS's predefined interfaces; register it after every MDNS.begin().
 +void apBridgeMdns() {
 +  if (!brNetif) return;
@@ -194,7 +208,7 @@ index f840456..2e0a125 100644
  bool initEthernet()
  {
    static bool successfullyConfiguredEthernet = false;
-@@ -416,6 +587,9 @@ bool initEthernet()
+@@ -416,6 +600,9 @@ bool initEthernet()
  // Arduino/esp_netif network stack is actually up. See the note in initEthernet() for why this
  // cannot happen during config load on Core 3.x.
  void handleW5500() {
@@ -204,7 +218,7 @@ index f840456..2e0a125 100644
    if (!w5500Pending || w5500Started) return;
  
    // Retry until begin() succeeds rather than giving up after one attempt. A single shot means
-@@ -431,6 +605,17 @@ void handleW5500() {
+@@ -431,6 +618,17 @@ void handleW5500() {
    if (lastAttempt != 0 && millis() - lastAttempt < WLED_W5500_RETRY_MS) return;
    lastAttempt = millis();
  
@@ -295,10 +309,10 @@ index ed1b627..f763f60 100644
    return (ETH.localIP()[0] != 0) && ETH.linkUp();
  #endif
 diff --git a/wled00/wled.cpp b/wled00/wled.cpp
-index c403fe3..b95fc4a 100644
+index c403fe3..8cc1d17 100644
 --- a/wled00/wled.cpp
 +++ b/wled00/wled.cpp
-@@ -727,8 +727,18 @@ void WLED::initAP(bool resetAP)
+@@ -727,8 +727,20 @@ void WLED::initAP(bool resetAP)
    #endif
    #endif
  
@@ -306,6 +320,8 @@ index c403fe3..b95fc4a 100644
 +  if (apBridgeEnabled) {
 +    // Bridge build (0002): the AP is an IP-less L2 bridge port (added in handleW5500()), so no
 +    // 4.3.2.1 and no AP DHCP server - clients get DHCP from the LAN. STA cap enforced here.
++    // Until the AP is bridged (no link yet) it is a normal local AP on WLED's default 4.3.2.1/24.
++    if (!apBridgePortAdded()) WiFi.softAPConfig(IPAddress(4, 3, 2, 1), IPAddress(4, 3, 2, 1), IPAddress(255, 255, 255, 0));
 +    WiFi.softAP(apSSID, apPass, apChannel, apHide, apBridgeMaxSta);
 +    if (apBridgeNo11b) esp_wifi_config_11b_rate(WIFI_IF_AP, true);
 +  } else
@@ -317,7 +333,7 @@ index c403fe3..b95fc4a 100644
    #ifdef ARDUINO_ARCH_ESP32
    DEBUG_PRINT(F("access point maxTxPower set to ")); DEBUG_PRINTLN(txPower);
    WiFi.setTxPower(wifi_power_t(txPower));
-@@ -750,8 +760,13 @@ void WLED::initAP(bool resetAP)
+@@ -750,8 +762,13 @@ void WLED::initAP(bool resetAP)
      e131.begin(false, e131Port, e131Universe, E131_MAX_UNIVERSE_COUNT);
      ddp.begin(false, DDP_DEFAULT_PORT);
  
@@ -331,7 +347,7 @@ index c403fe3..b95fc4a 100644
    }
    apActive = true;
  }
-@@ -771,6 +786,16 @@ void WLED::initConnection()
+@@ -771,6 +788,16 @@ void WLED::initConnection()
    }
  #endif
  
@@ -348,7 +364,7 @@ index c403fe3..b95fc4a 100644
    DEBUG_PRINTLN(F("WiFi disconnect."));
    WiFi.disconnect(true); // close old connections
    delay(5);              // wait for hardware to be ready
-@@ -938,6 +963,9 @@ void WLED::initInterfaces()
+@@ -938,6 +965,9 @@ void WLED::initInterfaces()
      // see https://github.com/esp8266/Arduino/issues/7213
      MDNS.end();
      MDNS.begin(cmDNS);
@@ -358,8 +374,22 @@ index c403fe3..b95fc4a 100644
  
      DEBUG_PRINTLN(F("mDNS started"));
      MDNS.addService("http", "tcp", 80);
+@@ -1095,7 +1125,13 @@ void WLED::handleConnection()
+     lastMqttReconnectAttempt = 0; // force immediate update
+ 
+     // shut down AP
++#ifdef WLED_AP_BRIDGE
++    // Bridge build (0002): the AP is a bridge port and must stay up regardless of apBehavior
++    // once Ethernet (br0) connects - handleConnection() only knows about WiFi-STA connections.
++    if (!apBridgeEnabled && apBehavior != AP_BEHAVIOR_ALWAYS && apActive) {
++#else
+     if (apBehavior != AP_BEHAVIOR_ALWAYS && apActive) {
++#endif
+       dnsServer.stop();
+       WiFi.softAPdisconnect(true);
+       apActive = false;
 diff --git a/wled00/wled.h b/wled00/wled.h
-index 7325e15..664f4d6 100644
+index 7325e15..c0bed4b 100644
 --- a/wled00/wled.h
 +++ b/wled00/wled.h
 @@ -350,6 +350,12 @@ WLED_GLOBAL int8_t selectedWiFi  _INIT(0);
@@ -375,3 +405,14 @@ index 7325e15..664f4d6 100644
    #ifdef ARDUINO_ARCH_ESP32
  WLED_GLOBAL bool noWifiSleep _INIT(true);                         // disabling modem sleep modes will increase heat output and power usage, but may help with connection issues
    #else
+@@ -361,7 +367,9 @@ WLED_GLOBAL bool force802_3g _INIT(false);
+ WLED_GLOBAL byte wifiBandMode _INIT((byte)WIFI_BAND_MODE_AUTO);  // default for dual-band chips (1=2.4G, 2=5G, 3=Auto)
+ #endif
+ #if defined(ARDUINO_ARCH_ESP32)
+-  #if defined(LOLIN_WIFI_FIX) // extend this fix to all esp32 boards
++  #if defined(WLED_AP_BRIDGE)
++WLED_GLOBAL uint8_t txPower _INIT(WIFI_POWER_21dBm);  // Backbone default: IDF maximum
++  #elif defined(LOLIN_WIFI_FIX) // extend this fix to all esp32 boards
+ WLED_GLOBAL uint8_t txPower _INIT(WIFI_POWER_8_5dBm);
+   #else
+ WLED_GLOBAL uint8_t txPower _INIT(WIFI_POWER_19_5dBm);  // ToDO: change to int8_t; V5 allows WIFI_POWER_21dBm = 84 ... WIFI_POWER_MINUS_1dBm = -4. Also check if the UI can handle it.

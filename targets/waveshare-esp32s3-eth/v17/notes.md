@@ -181,8 +181,10 @@ DHCP from the real LAN, and show up as ordinary wired-LAN devices.
 - `patches/0002-backbone-ap-bridge.patch` (on top of 0001):
   - `network.cpp`: in `handleW5500()`, the bridge build brings the W5500 up at IDF level as an
     IP-less bridge port (promiscuous) instead of `ETH.begin()`, creates `br0` (DHCP, or WLED's
-    static IP settings) and, once the AP is up, adds the AP as the second port. An open AP (no
-    8+ char key) is never bridged; it stays a local 192.168.4.1 AP until a key is set. Same deferred
+    static IP settings) and, once the AP is up, adds the AP as the second port. The AP is only
+    bridged once the W5500 reports a real link (`ETHERNET_EVENT_CONNECTED`); until then it is a
+    normal local 4.3.2.1 AP. An AP with no key, or still on the build's default key, is never
+    bridged: it stays a local 4.3.2.1 AP until the key is changed to a custom 8+ char one. Same deferred
     start/retry as 0001. Same derived MAC as v17's `ETH.begin()`, so DHCP reservations carry over.
   - `wled.cpp`: `initAP()` skips 4.3.2.1 / AP DHCP server / captive DNS and applies the STA cap.
     `initConnection()` skips the WiFi reset and STA connect (the Backbone is never a WiFi client,
@@ -193,8 +195,12 @@ DHCP from the real LAN, and show up as ordinary wired-LAN devices.
 - `usermods/ap_bridge/`: one-stop settings page (Usermods → ApBridge). Writes straight into the
   core AP globals; saving a change reboots. See its readme.md.
 - `custom_sdkconfig`: `CONFIG_ESP_NETIF_BRIDGE_EN=y` — triggers a framework lib rebuild.
-- Own defaults (via `build_unflags` + `build_flags` in the env): release name
-  `WAVESHARE-S3-ETH-APBRIDGE`, AP SSID `WLED_BRIDGE`, AP key `876543210`.
+- Own defaults (own from-scratch `build_flags` in the env, see the comment there): release name
+  `WAVESHARE-S3-ETH-APBRIDGE`, AP SSID `WLED_BRIDGE`, AP key `876543210`, WiFi TX power 21 dBm
+  (`wled.h`, bridge build only; also a setting in the usermod), W5500 SPI 40 MHz.
+- **Security:** the default key is public (it is in this repo), so the bridge stays off until it
+  is changed in Usermods → ApBridge (saving a new key reboots and then bridges). Until then the
+  AP is a plain local 4.3.2.1 AP and the usermod page shows a warning.
 
 Build:
 ```
@@ -202,6 +208,7 @@ scripts/build-target.sh --target waveshare-esp32s3-eth --version v17 \
   --environment waveshare_esp32s3_eth_v5_apbridge
 ```
 
-Known risks / not done (see the handoff spec): W5500 SPI at 20 MHz is the throughput bottleneck
-(unchanged, bench first); multicast/broadcast from the LAN is flooded onto the AP (unicast DDP only
-for wireless nodes); no hardware bench test yet; AP fields still shown on the WiFi settings page.
+Known risks / not done (see the handoff spec): W5500 SPI is 40 MHz in this env (v17 stays at
+20 MHz); still being bench-tested for throughput and stability; multicast/broadcast from the LAN
+is flooded onto the AP (unicast DDP only for wireless nodes); once the AP is a bridge port it
+can't be removed until reboot; AP fields still shown on the WiFi settings page.
