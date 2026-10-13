@@ -68,14 +68,21 @@ apply_patches() {
   # broken patch in one pass instead of dying on the first and hiding the rest.
   if [ -d "$workspace_dir/.git" ]; then
     local failed=()
+    # Check against a scratch index of the current tree, applying each patch that passes, so a
+    # patch stacked on an earlier one (e.g. 0002 on 0001) is checked against the tree it will see.
+    local check_index
+    check_index=$(mktemp -u)
+    GIT_INDEX_FILE="$check_index" git -C "$workspace_dir" add -A
     for patch_file in "${patch_files[@]}"; do
-      if git -C "$workspace_dir" apply --check "$patch_file" 2>/dev/null; then
+      if GIT_INDEX_FILE="$check_index" git -C "$workspace_dir" apply --cached --check "$patch_file" 2>/dev/null; then
+        GIT_INDEX_FILE="$check_index" git -C "$workspace_dir" apply --cached --whitespace=nowarn "$patch_file"
         echo "Patch check OK: $patch_file"
       else
         echo "Patch check FAILED: $patch_file"
         failed+=("$patch_file")
       fi
     done
+    rm -f "$check_index"
     if [ "${#failed[@]}" -gt 0 ]; then
       echo "The following patches do not apply cleanly against this workspace:" >&2
       for patch_file in "${failed[@]}"; do

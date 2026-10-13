@@ -138,6 +138,9 @@ check_patches_dir() {
     local rel="${patch_file#"$repo_root"/}"
     if git -C "$workspace" apply --check "$patch_file" 2>/tmp/check-target-patches.$$.err; then
       results+=("PASS  $label  $rel")
+      # apply it to the scratch checkout so a later stacked patch (e.g. 0002 on 0001) is checked
+      # against the tree it will actually see
+      git -C "$workspace" apply --whitespace=nowarn "$patch_file"
     else
       results+=("FAIL  $label  $rel")
       overall_ok=false

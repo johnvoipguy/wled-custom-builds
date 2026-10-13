@@ -167,3 +167,48 @@ scripts/build-target.sh --target waveshare-esp32s3-eth --version v17 ...
 `build-target.sh` fetches `wled_ref` (`main`) fresh each run per `build.json`. Flash mode is the
 same dual `board_build.flash_mode=qio` / `custom_merge_flash_mode=dio` split as v16 — see v16's
 notes.md for why both values are required and load-bearing.
+
+## Backbone-AP-Bridge variant (separate firmware, rev 1 2026-10-11)
+
+Separate env `waveshare_esp32s3_eth_v5_apbridge` in `platformio.env.ini`, extending the v17 env.
+Regular v17 is unchanged: everything below is gated by `-D WLED_AP_BRIDGE`, which only the
+apbridge env sets.
+
+The Backbone's WiFi AP becomes a **pure L2 bridge** to the W5500 port (ESP-IDF lwIP bridge,
+`esp_netif_br_glue`). No NAT. Wireless NODE Flex/Mini join the AP as plain STA clients, get
+DHCP from the real LAN, and show up as ordinary wired-LAN devices.
+
+- `patches/0002-backbone-ap-bridge.patch` (on top of 0001):
+  - `network.cpp`: in `handleW5500()`, the bridge build brings the W5500 up at IDF level as an
+    IP-less bridge port (promiscuous) instead of `ETH.begin()`, creates `br0` (DHCP, or WLED's
+    static IP settings) and, once the AP is up, adds the AP as the second port. The AP is only
+    bridged once the W5500 reports a real link (`ETHERNET_EVENT_CONNECTED`); until then it is a
+    normal local 4.3.2.1 AP. An AP with no key, or still on the build's default key, is never
+    bridged: it stays a local 4.3.2.1 AP until the key is changed to a custom 8+ char one. Same deferred
+    start/retry as 0001. Same derived MAC as v17's `ETH.begin()`, so DHCP reservations carry over.
+  - `wled.cpp`: `initAP()` skips 4.3.2.1 / AP DHCP server / captive DNS and applies the STA cap.
+    `initConnection()` skips the WiFi reset and STA connect (the Backbone is never a WiFi client,
+    and lwIP's bridge can't drop a port, so the AP must never be torn down). `br0` is registered
+    with mDNS after `MDNS.begin()`.
+  - `WLEDNetwork` (`localIP`/`subnetMask`/`gatewayIP`/`localMAC`/`isEthernet`): reports `br0`.
+  - `wled.h`: `apBridgeEnabled` / `apBridgeMaxSta` (default 3) / `apBridgeNo11b` globals.
+- `usermods/ap_bridge/`: one-stop settings page (Usermods → ApBridge). Writes straight into the
+  core AP globals; saving a change reboots. See its readme.md.
+- `custom_sdkconfig`: `CONFIG_ESP_NETIF_BRIDGE_EN=y` — triggers a framework lib rebuild.
+- Own defaults (own from-scratch `build_flags` in the env, see the comment there): release name
+  `WAVESHARE-S3-ETH-APBRIDGE`, AP SSID `WLED_BRIDGE`, AP key `876543210`, WiFi TX power 21 dBm
+  (`wled.h`, bridge build only; also a setting in the usermod), W5500 SPI 40 MHz.
+- **Security:** the default key is public (it is in this repo), so the bridge stays off until it
+  is changed in Usermods → ApBridge (saving a new key reboots and then bridges). Until then the
+  AP is a plain local 4.3.2.1 AP and the usermod page shows a warning.
+
+Build:
+```
+scripts/build-target.sh --target waveshare-esp32s3-eth --version v17 \
+  --environment waveshare_esp32s3_eth_v5_apbridge
+```
+
+Known risks / not done (see the handoff spec): W5500 SPI is 40 MHz in this env (v17 stays at
+20 MHz); still being bench-tested for throughput and stability; multicast/broadcast from the LAN
+is flooded onto the AP (unicast DDP only for wireless nodes); once the AP is a bridge port it
+can't be removed until reboot; AP fields still shown on the WiFi settings page.
